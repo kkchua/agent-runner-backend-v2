@@ -69,10 +69,15 @@ def list_action_pending_runs(db: Session, *, worker_id: str | None = None) -> li
     Action-pending runs are served to any available worker (not just the
     originally assigned one), since the action may need to be processed
     regardless of which worker is free.
+
+    Excludes terminal statuses (COMPLETED, FAILED).
     """
     return (
         db.query(WorkflowRun)
-        .filter(WorkflowRun.action_requested.isnot(None))
+        .filter(
+            WorkflowRun.action_requested.isnot(None),
+            WorkflowRun.run_status.notin_(["COMPLETED", "FAILED"]),
+        )
         .order_by(WorkflowRun.created_at.asc())
         .all()
     )

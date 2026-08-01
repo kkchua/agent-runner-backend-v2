@@ -230,6 +230,7 @@ def report_outcome(
         db, run,
         run_status=result.run_status,
         current_step_name=result.current_step_name,
+        clear_action=result.clear_action,
     )
     if result.refine_iterations:
         run.refine_iterations = result.refine_iterations
