@@ -7,7 +7,10 @@ from urllib import request
 # Add agent-runner-v2 to path
 sys.path.insert(0, r'D:\MyProjectSpace\01_Workflows\agent-runner-v2')
 
-from agent_runner_v2.workflow_packages.loader import load_workflow_package
+from agent_runner_v2.workflow_packages.loader import (
+    load_workflow_package,
+    bundle_to_template_group_dict,
+)
 
 V2_BACKEND = 'http://localhost:8200'
 WORKFLOWS_DIR = Path(r'D:\MyProjectSpace\01_Workflows\agent-runner-v2\workflows')
@@ -19,31 +22,44 @@ def sync_workflow(wf_dir: Path) -> bool:
         sys.stdout.write(f'Syncing {bundle.name}... ')
         sys.stdout.flush()
 
-        # Convert to V2 format
+        # Use the same adapter as the runner's sync to get the canonical dict
+        group_dict = bundle_to_template_group_dict(bundle)
+
+        # Strip non-serializable bundle refs
+        for cfg in group_dict.get("step_configs", {}).values():
+            cfg.pop("_workflow_bundle", None)
+
+        # Convert TEMPLATE_GROUPS format to V2 backend format
+        # V1: {"steps": [...], "step_configs": {"name": {"onsuccess": "..."}}}
+        # V2: {"steps": {"name": {"onsuccess": "..."}}}
+        step_configs = group_dict.get("step_configs", {})
+        steps_order = group_dict.get("steps", [])
+
         definition = {
-            'job_prefix': bundle.job_prefix,
-            'init_step': bundle.init_step,
-            'default_max_rejects': bundle.default_max_rejects,
-            'steps': {}
+            'job_prefix': group_dict.get('job_prefix', 'JOB'),
+            'init_step': group_dict.get('job_init_step'),
+            'default_max_rejects': group_dict.get('default_max_rejects', 0),
+            'steps': {},
         }
 
-        for step_name, step_config in bundle.steps.items():
+        for step_name in steps_order:
+            cfg = step_configs.get(step_name, {})
             step_def = {}
-            # Handle step_config attributes safely
-            if hasattr(step_config, 'onsuccess') and step_config.onsuccess:
-                step_def['onsuccess'] = step_config.onsuccess
-            if hasattr(step_config, 'requires_human_approval_after') and step_config.requires_human_approval_after:
+            # Copy routing: onsuccess is in extra/passthrough
+            if 'onsuccess' in cfg:
+                step_def['onsuccess'] = cfg['onsuccess']
+            if cfg.get('requires_human_approval_after'):
                 step_def['requires_human_approval_after'] = True
-            if hasattr(step_config, 'on_reject_refine') and step_config.on_reject_refine:
-                step_def['on_reject_refine'] = step_config.on_reject_refine
-            if hasattr(step_config, 'on_exhaust_replan') and step_config.on_exhaust_replan:
-                step_def['on_exhaust_replan'] = step_config.on_exhaust_replan
-            if hasattr(step_config, 'coder') and step_config.coder:
-                step_def['coder'] = step_config.coder
-            if hasattr(step_config, 'action') and step_config.action:
-                step_def['action'] = step_config.action
-            if hasattr(step_config, 'prompt') and step_config.prompt:
-                step_def['prompt'] = step_config.prompt
+            if 'on_reject_refine' in cfg:
+                step_def['on_reject_refine'] = cfg['on_reject_refine']
+            if 'on_exhaust_replan' in cfg:
+                step_def['on_exhaust_replan'] = cfg['on_exhaust_replan']
+            if 'coder' in cfg:
+                step_def['coder'] = cfg['coder']
+            if 'action' in cfg:
+                step_def['action'] = cfg['action']
+            if 'prompt_file' in cfg:
+                step_def['prompt_file'] = cfg['prompt_file']
             definition['steps'][step_name] = step_def
 
         # Send to backend
