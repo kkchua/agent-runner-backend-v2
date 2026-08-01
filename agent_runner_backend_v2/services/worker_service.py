@@ -20,10 +20,12 @@ def register_worker(
     worker_id: str,
     worker_label: str = "live",
     capabilities: dict | None = None,
+    host_id: str | None = None,
 ) -> WorkerRegistry:
     """Register or update a worker."""
     worker = WorkerRegistry(
         worker_id=worker_id,
+        host_id=host_id,
         status="active",
         worker_label=worker_label,
         capabilities=capabilities or {},

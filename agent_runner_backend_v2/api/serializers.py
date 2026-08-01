@@ -1,7 +1,16 @@
 """ORM model → JSON serialization."""
 from __future__ import annotations
 
-from agent_runner_backend_v2.api.schemas import RunResponse, WorkerResponse, WorkflowResponse
+from agent_runner_backend_v2.api.schemas import (
+    HostResponse,
+    RepoResponse,
+    RepoWorkflowResponse,
+    RunResponse,
+    WorkerResponse,
+    WorkflowResponse,
+)
+from agent_runner_backend_v2.models.host import Host
+from agent_runner_backend_v2.models.repo import RepoRegistry, RepoWorkflowAssignment
 from agent_runner_backend_v2.models.run import WorkflowRun
 from agent_runner_backend_v2.models.worker import WorkerRegistry
 from agent_runner_backend_v2.models.workflow import WorkflowDefinition
@@ -29,10 +38,28 @@ def serialize_run(run: WorkflowRun, valid_actions: list[str] | None = None) -> R
     )
 
 
+def serialize_host(host: Host) -> HostResponse:
+    """Serialize a Host to a HostResponse."""
+    return HostResponse(
+        id=host.id,
+        hostname=host.hostname,
+        ip_address=host.ip_address,
+        os_type=host.os_type,
+        created_at=host.created_at.isoformat() if host.created_at else "",
+        updated_at=host.updated_at.isoformat() if host.updated_at else "",
+    )
+
+
 def serialize_worker(worker: WorkerRegistry) -> WorkerResponse:
     """Serialize a WorkerRegistry to a WorkerResponse."""
+    hostname = None
+    if worker.host:
+        hostname = worker.host.hostname
+
     return WorkerResponse(
         worker_id=worker.worker_id,
+        host_id=worker.host_id,
+        hostname=hostname,
         status=worker.status,
         worker_label=worker.worker_label,
         last_heartbeat=worker.last_heartbeat.isoformat() if worker.last_heartbeat else None,
@@ -48,4 +75,38 @@ def serialize_workflow(wf: WorkflowDefinition) -> WorkflowResponse:
         init_step=wf.init_step,
         is_active=wf.is_active,
         step_count=len(wf.steps),
+    )
+
+
+def serialize_repo_workflow(assignment: RepoWorkflowAssignment) -> RepoWorkflowResponse:
+    """Serialize a RepoWorkflowAssignment."""
+    return RepoWorkflowResponse(
+        id=assignment.id,
+        workflow_name=assignment.workflow_name,
+        display_name=assignment.display_name,
+        created_at=assignment.created_at.isoformat() if assignment.created_at else "",
+    )
+
+
+def serialize_repo(repo: RepoRegistry) -> RepoResponse:
+    """Serialize a RepoRegistry to a RepoResponse, including host and workflow info."""
+    hostname = None
+    os_type = None
+    if repo.worker and repo.worker.host:
+        hostname = repo.worker.host.hostname
+        os_type = repo.worker.host.os_type
+
+    workflows = [serialize_repo_workflow(a) for a in repo.workflow_assignments]
+
+    return RepoResponse(
+        id=repo.id,
+        name=repo.name,
+        path=repo.path,
+        worker_id=repo.worker_id,
+        host_id=repo.worker.host_id if repo.worker else None,
+        hostname=hostname,
+        os_type=os_type,
+        workflows=workflows,
+        created_at=repo.created_at.isoformat() if repo.created_at else "",
+        updated_at=repo.updated_at.isoformat() if repo.updated_at else "",
     )

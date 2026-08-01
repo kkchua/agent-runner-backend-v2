@@ -23,7 +23,7 @@ def register_worker(req: RegisterWorkerRequest, db: Session = Depends(get_db)) -
     """Register or update a worker."""
     w = worker_service.register_worker(
         db, worker_id=req.worker_id, worker_label=req.worker_label,
-        capabilities=req.capabilities,
+        capabilities=req.capabilities, host_id=req.host_id,
     )
     return serialize_worker(w)
 

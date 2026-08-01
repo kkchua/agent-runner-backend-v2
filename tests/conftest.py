@@ -19,6 +19,9 @@ os.environ["AGENT_RUNNER_DATABASE_URL"] = TEST_DATABASE_URL
 
 from agent_runner_backend_v2.database import Base  # noqa: E402
 
+# Import all models so Base.metadata knows about every table
+from agent_runner_backend_v2.models import host, repo, run, worker, workflow  # noqa: F401, E402
+
 engine = create_engine(TEST_DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
@@ -26,13 +29,9 @@ SessionLocal = sessionmaker(bind=engine)
 @pytest.fixture(autouse=True)
 def reset_db() -> Generator[None, None, None]:
     """Ensure all tables exist, clean up data between tests."""
+    Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
-    # Truncate all tables for clean state
-    with engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
-            conn.execute(table.delete())
     yield
-    # Don't drop tables — just leave them for next test's create_all
 
 
 @pytest.fixture

@@ -56,6 +56,7 @@ class RegisterWorkerRequest(BaseModel):
     worker_id: str
     worker_label: str = "live"
     capabilities: dict = Field(default_factory=dict)
+    host_id: str | None = None
 
 
 class HeartbeatRequest(BaseModel):
@@ -70,6 +71,8 @@ class HeartbeatResponse(BaseModel):
 
 class WorkerResponse(BaseModel):
     worker_id: str
+    host_id: str | None = None
+    hostname: str | None = None
     status: str
     worker_label: str
     last_heartbeat: str | None = None
@@ -125,3 +128,63 @@ class WorkflowResponse(BaseModel):
     init_step: str | None = None
     is_active: bool
     step_count: int
+
+
+# ---------------------------------------------------------------------------
+# Host schemas
+# ---------------------------------------------------------------------------
+
+class CreateHostRequest(BaseModel):
+    hostname: str
+    ip_address: str | None = None
+    os_type: str = "windows"
+
+
+class HostResponse(BaseModel):
+    id: str
+    hostname: str
+    ip_address: str | None = None
+    os_type: str
+    created_at: str
+    updated_at: str
+
+
+# ---------------------------------------------------------------------------
+# Repo schemas
+# ---------------------------------------------------------------------------
+
+class CreateRepoRequest(BaseModel):
+    name: str
+    path: str
+    worker_id: str
+
+
+class UpdateRepoRequest(BaseModel):
+    name: str | None = None
+    path: str | None = None
+    worker_id: str | None = None
+
+
+class AssignWorkflowRequest(BaseModel):
+    workflow_name: str
+    display_name: str | None = None
+
+
+class RepoWorkflowResponse(BaseModel):
+    id: str
+    workflow_name: str
+    display_name: str | None = None
+    created_at: str
+
+
+class RepoResponse(BaseModel):
+    id: str
+    name: str
+    path: str
+    worker_id: str
+    host_id: str | None = None
+    hostname: str | None = None
+    os_type: str | None = None
+    workflows: list[RepoWorkflowResponse] = Field(default_factory=list)
+    created_at: str
+    updated_at: str

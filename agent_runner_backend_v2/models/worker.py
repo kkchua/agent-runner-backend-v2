@@ -1,8 +1,9 @@
 """Worker registry model."""
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, String
+from sqlalchemy import Column, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
 
 from agent_runner_backend_v2.database import Base
 from agent_runner_backend_v2.models.run import utcnow
@@ -14,6 +15,7 @@ class WorkerRegistry(Base):
     __tablename__ = "worker_registry"
 
     worker_id = Column(String(80), primary_key=True)
+    host_id = Column(String(36), ForeignKey("hosts.id"), nullable=True, index=True)
     status = Column(String(30), nullable=False, default="active", index=True)
     worker_label = Column(String(40), nullable=False, default="live", index=True)
     capabilities = Column(JSONB, nullable=False, default=dict)
@@ -22,3 +24,5 @@ class WorkerRegistry(Base):
     last_heartbeat = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    host = relationship("Host", lazy="select")
