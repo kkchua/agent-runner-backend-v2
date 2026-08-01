@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 TEST_DATABASE_URL = (
     os.environ.get("AGENT_RUNNER_TEST_DATABASE_URL")
     or os.environ.get("TEST_DATABASE_URL")
-    or "postgresql+psycopg2://postgres:postgres@localhost:5432/agentrunnerv2"
+    or "postgresql+psycopg2://postgres:postgres@localhost:5432/agentrunnerv2_test"
 )
 
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
