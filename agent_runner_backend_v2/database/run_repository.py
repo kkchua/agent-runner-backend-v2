@@ -64,11 +64,18 @@ def list_claimable_runs(db: Session, *, worker_id: str) -> list[WorkflowRun]:
 
 
 def list_action_pending_runs(db: Session, *, worker_id: str | None = None) -> list[WorkflowRun]:
-    """List runs with a pending action for a worker."""
-    query = db.query(WorkflowRun).filter(WorkflowRun.action_requested.isnot(None))
-    if worker_id:
-        query = query.filter(WorkflowRun.claimed_by_worker == worker_id)
-    return query.all()
+    """List runs with a pending action.
+
+    Action-pending runs are served to any available worker (not just the
+    originally assigned one), since the action may need to be processed
+    regardless of which worker is free.
+    """
+    return (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.action_requested.isnot(None))
+        .order_by(WorkflowRun.created_at.asc())
+        .all()
+    )
 
 
 def create_run(db: Session, run: WorkflowRun) -> WorkflowRun:
