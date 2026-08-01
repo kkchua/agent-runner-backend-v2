@@ -69,12 +69,14 @@ def serialize_worker(worker: WorkerRegistry) -> WorkerResponse:
 
 def serialize_workflow(wf: WorkflowDefinition) -> WorkflowResponse:
     """Serialize a WorkflowDefinition to a WorkflowResponse."""
+    step_names = [s.step_name for s in sorted(wf.steps, key=lambda s: s.step_order)]
     return WorkflowResponse(
         workflow_name=wf.name,
         job_prefix=wf.job_prefix,
         init_step=wf.init_step,
         is_active=wf.is_active,
         step_count=len(wf.steps),
+        steps=step_names,
     )
 
 

@@ -128,6 +128,7 @@ class WorkflowResponse(BaseModel):
     init_step: str | None = None
     is_active: bool
     step_count: int
+    steps: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
