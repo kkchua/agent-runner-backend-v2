@@ -111,6 +111,12 @@ def claim_work(
     if action_runs:
         run = action_runs[0]
         workflow = run.workflow_definition
+
+        # Transition to RUNNING for action processing
+        run_repository.update_run_status(db, run, run_status="RUNNING")
+        run.claimed_by_worker = worker_id
+        run.started_at = utcnow()
+
         step_run = _get_or_create_step_run(db, run, workflow)
 
         return {
@@ -201,11 +207,19 @@ def report_outcome(
             run_repository.create_artifact(db, art)
 
     # Transition via state machine
-    event = TransitionEvent(
-        event_type=EventType.STEP_OUTCOME,
-        outcome=outcome,
-        failure_class=failure_class,
-    )
+    # If action_requested is set, this is an action consumption, not a step outcome
+    if run.action_requested:
+        event = TransitionEvent(
+            event_type=EventType.ACTION_CONSUMED,
+            outcome=outcome,
+            failure_class=failure_class,
+        )
+    else:
+        event = TransitionEvent(
+            event_type=EventType.STEP_OUTCOME,
+            outcome=outcome,
+            failure_class=failure_class,
+        )
     result = transition(db, run, event, workflow)
 
     if result.is_error:

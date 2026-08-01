@@ -25,10 +25,14 @@ SessionLocal = sessionmaker(bind=engine)
 
 @pytest.fixture(autouse=True)
 def reset_db() -> Generator[None, None, None]:
-    """Truncate all tables between tests for isolation."""
+    """Ensure all tables exist, clean up data between tests."""
     Base.metadata.create_all(engine)
+    # Truncate all tables for clean state
+    with engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(table.delete())
     yield
-    Base.metadata.drop_all(engine)
+    # Don't drop tables — just leave them for next test's create_all
 
 
 @pytest.fixture
