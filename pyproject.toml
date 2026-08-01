@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-runner-backend-v2"
+version = "0.1.0"
+description = "Platform V2 backend with state machine for agent-runner-v2 workflows"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg2-binary>=2.9",
+    "structlog>=23.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["agent_runner_backend_v2*"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: Unit tests - pure logic with real test database",
+    "integration: Integration tests - require database and/or running services",
+]
+addopts = "-p no:cacheprovider"
+
+[project.scripts]
+arb-v2-server = "agent_runner_backend_v2.main:main"
