@@ -92,7 +92,7 @@ class TestRunEndpoints:
             "action": "CANCEL",
         })
         assert resp.status_code == 200
-        assert resp.json()["run_status"] == "FAILED"
+        assert resp.json()["run_status"] == "CANCELLED"
 
     def test_invalid_action_returns_422(self, api_client: TestClient):
         api_client.post("/api/workflows/sync", json={
@@ -245,11 +245,11 @@ class TestFullWorkflowCycle:
         resp = api_client.post("/api/workers/w1/claim")
         step_run_id = resp.json()["step_run"]["step_run_id"]
 
-        # 5. Report outcome (approved at review gate → AWAITING_APPROVAL)
+        # 5. Report outcome (approved at review gate → WAITING_FOR_HUMAN_APPROVAL)
         resp = api_client.post(f"/api/runs/step-runs/{step_run_id}/outcome", json={
             "outcome": "approved",
         })
-        assert resp.json()["run_status"] == "AWAITING_APPROVAL"
+        assert resp.json()["run_status"] == "WAITING_FOR_HUMAN_APPROVAL"
 
         # 6. Request approve action
         resp = api_client.post(f"/api/runs/{run_id}/action", json={

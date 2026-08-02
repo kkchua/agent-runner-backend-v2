@@ -40,7 +40,21 @@ def heartbeat(
     )
     if not w:
         raise HTTPException(status_code=404, detail="Worker not found")
-    return HeartbeatResponse(commands=[])
+
+    # Check for force-cancelled runs claimed by this worker — daemon must
+    # terminate their children immediately.
+    commands: list[str] = []
+    force_cancel_runs = run_service.get_force_cancelled_runs(db, worker_id=worker_id)
+    if force_cancel_runs:
+        # Return run_ids as a "terminate" command payload
+        # The daemon parses HeartbeatResponse.commands for known keywords
+        commands.append("terminate_children")
+
+    return HeartbeatResponse(
+        commands=commands,
+        # Use detail field to pass force-cancelled run_ids to daemon
+        detail={"force_cancel_run_ids": [r.id for r in force_cancel_runs]} if force_cancel_runs else None,
+    )
 
 
 @router.post("/{worker_id}/claim")

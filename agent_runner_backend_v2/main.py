@@ -13,8 +13,10 @@ from sqlalchemy import text
 from agent_runner_backend_v2.api.routes import router
 from agent_runner_backend_v2.config import settings
 from agent_runner_backend_v2.database import SessionLocal, engine, init_db
+from agent_runner_backend_v2.logging_config import setup_logging
 
-logger = structlog.get_logger(__name__)
+# Initialize logging
+logger = setup_logging()
 
 _FORCE_EXIT_TIMEOUT_SECONDS = 5.0
 

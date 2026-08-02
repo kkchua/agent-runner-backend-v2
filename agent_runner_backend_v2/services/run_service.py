@@ -71,7 +71,7 @@ def submit_run(
     run = WorkflowRun(
         run_code=run_code,
         workflow_definition_id=workflow.id,
-        run_status=RunStatus.SUBMITTED.value,
+        run_status=RunStatus.USER_SUBMITTED.value,
         current_step_name=init_step,
         target_worker_id=worker_id,
         worker_label="live",
@@ -106,11 +106,20 @@ def claim_work(
     1. Action-pending runs (PROCESS_ACTION)
     2. Claimable runs (EXECUTE_STEP)
     """
-    # Check for action-pending runs first
+    # Check for action-pending runs first (USER_* statuses)
     action_runs = run_repository.list_action_pending_runs(db, worker_id=worker_id)
     if action_runs:
         run = action_runs[0]
         workflow = run.workflow_definition
+
+        # Map USER_* status to action name
+        status_to_action = {
+            "USER_APPROVED": "APPROVE",
+            "USER_REJECTED": "REJECT",
+            "USER_RESUMED": "RESUME",
+            "USER_RETRIED": "RETRY",
+        }
+        action = status_to_action.get(run.run_status, "")
 
         # Transition to RUNNING for action processing
         run_repository.update_run_status(db, run, run_status="RUNNING")
@@ -124,7 +133,7 @@ def claim_work(
             "run": run,
             "step_run": step_run,
             "workflow": workflow,
-            "action": run.action_requested,
+            "action": action,
             "feedback": run.action_feedback,
         }
 
@@ -259,9 +268,14 @@ def request_action(
 
     Validates the action against the state machine and sets action_requested.
     """
+    import structlog
+    logger = structlog.get_logger(__name__)
+    
     run = run_repository.get_run_by_id(db, run_id)
     if not run:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    logger.info("request_action", run_id=run_id, action=action, current_status=run.run_status, current_action_requested=run.action_requested)
 
     workflow = run.workflow_definition
 
@@ -271,6 +285,8 @@ def request_action(
         feedback=feedback,
     )
     result = transition(db, run, event, workflow)
+
+    logger.info("request_action_result", is_error=result.is_error, error=result.error, new_status=result.run_status, new_action_requested=result.action_requested)
 
     if result.is_error:
         if "not valid" in result.error:
@@ -285,6 +301,8 @@ def request_action(
         action_requested=result.action_requested,
         clear_action=result.clear_action,
     )
+    if result.cancel_requested:
+        run.cancel_requested = result.cancel_requested
     if feedback:
         run.action_feedback = feedback
 
@@ -329,6 +347,15 @@ def reset_step(
     )
 
     return run
+
+
+def get_force_cancelled_runs(db: Session, *, worker_id: str) -> list[WorkflowRun]:
+    """Get runs claimed by this worker that have force-cancel pending.
+
+    These runs have cancel_requested='force' and the daemon needs to
+    terminate their children immediately.
+    """
+    return run_repository.list_force_cancelled_runs(db, worker_id=worker_id)
 
 
 def get_run_detail(db: Session, run_id: str) -> dict | None:

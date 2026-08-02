@@ -38,6 +38,7 @@ class RunListResponse(BaseModel):
 class ActionRequest(BaseModel):
     action: str
     feedback: str | None = None
+    force: bool = False  # For CANCEL: True=force cancel (kill children immediately)
 
 
 class ResetStepRequest(BaseModel):
@@ -67,6 +68,7 @@ class HeartbeatRequest(BaseModel):
 
 class HeartbeatResponse(BaseModel):
     commands: list[str] = Field(default_factory=list)
+    detail: dict | None = None
 
 
 class WorkerResponse(BaseModel):

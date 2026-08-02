@@ -1,6 +1,7 @@
 """Run management API routes."""
 from __future__ import annotations
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -16,6 +17,8 @@ from agent_runner_backend_v2.api.schemas import (
 from agent_runner_backend_v2.api.serializers import serialize_run
 from agent_runner_backend_v2.database import get_db, run_repository
 from agent_runner_backend_v2.services import run_service
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
@@ -45,10 +48,11 @@ def list_runs(
     """List workflow runs with optional filters."""
     statuses = None
     if status == "active":
-        statuses = ["SUBMITTED", "PENDING", "RUNNING", "AWAITING_APPROVAL",
+        statuses = ["USER_SUBMITTED", "USER_APPROVED", "USER_REJECTED", "USER_RESUMED", "USER_RETRIED",
+                     "PENDING", "RUNNING", "WAITING_FOR_HUMAN_APPROVAL",
                      "AWAITING_INTERVENTION", "AWAITING_MAXRETRIED"]
     elif status == "terminal":
-        statuses = ["COMPLETED", "FAILED"]
+        statuses = ["COMPLETED", "FAILED", "CANCELLED", "USER_CANCELLED"]
 
     runs = run_repository.list_runs(
         db,
@@ -73,11 +77,28 @@ def get_run(run_id: str, db: Session = Depends(get_db)) -> RunResponse:
 def request_action(
     run_id: str, req: ActionRequest, db: Session = Depends(get_db),
 ) -> RunResponse:
-    """Request an action on a run (approve, reject, resume, retry, cancel)."""
-    run = run_service.request_action(
-        db, run_id=run_id, action=req.action, feedback=req.feedback,
-    )
-    return serialize_run(run)
+    """Request an action on a run (approve, reject, resume, retry, cancel).
+
+    For CANCEL action: set force=True to immediately kill children (force cancel),
+    or force=False to let the current step finish naturally (graceful cancel).
+    """
+    logger.info("api_request_action", run_id=run_id, action=req.action, force=req.force)
+    try:
+        # Map CANCEL + force=True → FORCE_CANCEL internally
+        action = req.action
+        if action == "CANCEL" and req.force:
+            action = "FORCE_CANCEL"
+        run = run_service.request_action(
+            db, run_id=run_id, action=action, feedback=req.feedback,
+        )
+        logger.info("api_request_action_success", run_id=run_id, new_status=run.run_status)
+        return serialize_run(run)
+    except HTTPException:
+        logger.error("api_request_action_http_error", run_id=run_id, action=req.action)
+        raise
+    except Exception as e:
+        logger.error("api_request_action_unexpected_error", run_id=run_id, action=req.action, error=str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
 @router.post("/{run_id}/reset-step")
@@ -94,20 +115,29 @@ def report_outcome(
     step_run_id: str, req: OutcomeRequest, db: Session = Depends(get_db),
 ) -> OutcomeResponse:
     """Report a step outcome — backend computes next state."""
-    run = run_service.report_outcome(
-        db,
-        step_run_id=step_run_id,
-        outcome=req.outcome,
-        failure_class=req.failure_class,
-        artifacts=req.artifacts,
-        review=req.review,
-        error_message=req.error_message,
-        usage_summary=req.usage_summary,
-    )
-    return OutcomeResponse(
-        run_id=run.id,
-        run_status=run.run_status,
-        current_step=run.current_step_name,
-        action_requested=run.action_requested,
-        message=f"Transitioned to {run.run_status}",
-    )
+    logger.info("api_report_outcome", step_run_id=step_run_id, outcome=req.outcome, failure_class=req.failure_class)
+    try:
+        run = run_service.report_outcome(
+            db,
+            step_run_id=step_run_id,
+            outcome=req.outcome,
+            failure_class=req.failure_class,
+            artifacts=req.artifacts,
+            review=req.review,
+            error_message=req.error_message,
+            usage_summary=req.usage_summary,
+        )
+        logger.info("api_report_outcome_success", step_run_id=step_run_id, new_status=run.run_status, action_requested=run.action_requested)
+        return OutcomeResponse(
+            run_id=run.id,
+            run_status=run.run_status,
+            current_step=run.current_step_name,
+            action_requested=run.action_requested,
+            message=f"Transitioned to {run.run_status}",
+        )
+    except HTTPException:
+        logger.error("api_report_outcome_http_error", step_run_id=step_run_id, outcome=req.outcome)
+        raise
+    except Exception as e:
+        logger.error("api_report_outcome_unexpected_error", step_run_id=step_run_id, outcome=req.outcome, error=str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")

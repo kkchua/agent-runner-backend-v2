@@ -22,19 +22,38 @@ from agent_runner_backend_v2.models.workflow import WorkflowDefinition
 # ---------------------------------------------------------------------------
 
 class RunStatus(str, Enum):
-    SUBMITTED = "SUBMITTED"
+    # Actor-prefixed statuses — track who/what initiated the action
+    USER_SUBMITTED = "USER_SUBMITTED"
+    USER_APPROVED = "USER_APPROVED"
+    USER_REJECTED = "USER_REJECTED"
+    USER_RESUMED = "USER_RESUMED"
+    USER_RETRIED = "USER_RETRIED"
+    USER_CANCELLED = "USER_CANCELLED"
+    # Internal workflow statuses
     PENDING = "PENDING"
     RUNNING = "RUNNING"
-    AWAITING_APPROVAL = "AWAITING_APPROVAL"
+    WAITING_FOR_HUMAN_APPROVAL = "WAITING_FOR_HUMAN_APPROVAL"
     AWAITING_INTERVENTION = "AWAITING_INTERVENTION"
     AWAITING_MAXRETRIED = "AWAITING_MAXRETRIED"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
-TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED}
+TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
 NON_TERMINAL_STATUSES = {s for s in RunStatus if s not in TERMINAL_STATUSES}
-CLAIMABLE_STATUSES = {RunStatus.SUBMITTED, RunStatus.PENDING}
+# Claimable by daemon as EXECUTE_STEP: USER_SUBMITTED (new jobs) + PENDING (next step)
+CLAIMABLE_STATUSES = {
+    RunStatus.USER_SUBMITTED,
+    RunStatus.PENDING,
+}
+# User action statuses that daemon should process as PROCESS_ACTION
+USER_ACTION_STATUSES = {
+    RunStatus.USER_APPROVED,
+    RunStatus.USER_REJECTED,
+    RunStatus.USER_RESUMED,
+    RunStatus.USER_RETRIED,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -47,18 +66,25 @@ class Action(str, Enum):
     RESUME = "RESUME"
     RETRY = "RETRY"
     CANCEL = "CANCEL"
+    FORCE_CANCEL = "FORCE_CANCEL"
 
 
 # Valid actions per status
 VALID_ACTIONS: dict[RunStatus, set[Action]] = {
-    RunStatus.SUBMITTED: {Action.CANCEL},
-    RunStatus.PENDING: {Action.CANCEL},
-    RunStatus.RUNNING: {Action.CANCEL},
-    RunStatus.AWAITING_APPROVAL: {Action.APPROVE, Action.REJECT, Action.CANCEL},
-    RunStatus.AWAITING_INTERVENTION: {Action.RESUME, Action.RETRY, Action.CANCEL},
-    RunStatus.AWAITING_MAXRETRIED: {Action.RESUME, Action.RETRY, Action.CANCEL},
+    RunStatus.USER_SUBMITTED: {Action.CANCEL, Action.FORCE_CANCEL},
+    RunStatus.USER_APPROVED: set(),  # Daemon processes this, no further actions
+    RunStatus.USER_REJECTED: set(),  # Daemon processes this, no further actions
+    RunStatus.USER_RESUMED: set(),  # Daemon processes this, no further actions
+    RunStatus.USER_RETRIED: set(),  # Daemon processes this, no further actions
+    RunStatus.USER_CANCELLED: set(),  # Terminal-like, no actions
+    RunStatus.PENDING: {Action.CANCEL, Action.FORCE_CANCEL},
+    RunStatus.RUNNING: {Action.CANCEL, Action.FORCE_CANCEL},
+    RunStatus.WAITING_FOR_HUMAN_APPROVAL: {Action.APPROVE, Action.REJECT, Action.CANCEL, Action.FORCE_CANCEL},
+    RunStatus.AWAITING_INTERVENTION: {Action.RESUME, Action.RETRY, Action.CANCEL, Action.FORCE_CANCEL},
+    RunStatus.AWAITING_MAXRETRIED: {Action.RESUME, Action.RETRY, Action.CANCEL, Action.FORCE_CANCEL},
     RunStatus.COMPLETED: set(),
     RunStatus.FAILED: set(),
+    RunStatus.CANCELLED: set(),
 }
 
 
@@ -110,6 +136,7 @@ class TransitionResult:
     current_step_run_id: str | None = None
     action_requested: str | None = None
     clear_action: bool = False
+    cancel_requested: str | None = None  # "graceful" or "force"
     refine_iterations: dict[str, int] = field(default_factory=dict)
     error: str | None = None
 
@@ -142,7 +169,7 @@ def transition(
         return _handle_outcome(db, status, run, event, workflow)
 
     if event.event_type == EventType.ACTION_REQUESTED:
-        return _handle_action_requested(status, run, event)
+        return _handle_action_requested(db, status, run, event, workflow)
 
     if event.event_type == EventType.ACTION_CONSUMED:
         return _handle_action_consumed(db, status, run, event, workflow)
@@ -165,9 +192,11 @@ def _handle_claim(status: RunStatus, run: WorkflowRun) -> TransitionResult:
     if status not in CLAIMABLE_STATUSES:
         return TransitionResult(
             run_status=run.run_status,
-            error=f"Cannot claim: run_status is {status.value}, expected SUBMITTED or PENDING",
+            error=f"Cannot claim: run_status is {status.value}, expected USER_SUBMITTED or PENDING",
         )
-    if run.action_requested is not None:
+    # For USER_SUBMITTED and PENDING, action_requested should not be set
+    pending_action = run.action_requested or None
+    if pending_action is not None:
         return TransitionResult(
             run_status=run.run_status,
             error="Cannot claim: action_requested is set",
@@ -219,7 +248,7 @@ def _handle_approved(
     # Check if this step has a review gate
     if current_step and current_step.requires_human_approval:
         return TransitionResult(
-            run_status=RunStatus.AWAITING_APPROVAL.value,
+            run_status=RunStatus.WAITING_FOR_HUMAN_APPROVAL.value,
             current_step_name=run.current_step_name,
         )
 
@@ -289,12 +318,18 @@ def _handle_rejected(
 
 
 def _handle_action_requested(
+    db: Session,
     status: RunStatus,
     run: WorkflowRun,
     event: TransitionEvent,
+    workflow: WorkflowDefinition,
 ) -> TransitionResult:
     """Console requests an action — validate and set action_requested."""
+    import structlog
+    logger = structlog.get_logger(__name__)
+    
     action = event.action
+    logger.info("handle_action_requested", action=action, status=status.value, run_action_requested=run.action_requested)
 
     # Validate action is a known value
     try:
@@ -308,29 +343,65 @@ def _handle_action_requested(
     # Validate action is valid for current status
     valid = VALID_ACTIONS.get(status, set())
     if action_enum not in valid:
+        logger.info("handle_action_requested_invalid", action=action, status=status.value, valid=list(valid))
         return TransitionResult(
             run_status=run.run_status,
             error=f"Action {action} is not valid for status {status.value}",
         )
 
-    # Check no existing pending action
-    if run.action_requested is not None:
-        return TransitionResult(
-            run_status=run.run_status,
-            error=f"Action {run.action_requested} already pending",
-        )
+    # Check no existing pending action (unless it's the same action being confirmed)
+    # Treat empty string same as None (both mean "no pending action")
+    pending_action = run.action_requested or None
+    if pending_action is not None:
+        if pending_action == action:
+            logger.info("handle_action_requested_same_action", action=action)
+            # Same action being confirmed — allow it (consume the action)
+            pass
+        else:
+            logger.info("handle_action_requested_different_pending", pending=pending_action, requested=action)
+            return TransitionResult(
+                run_status=run.run_status,
+                error=f"Action {pending_action} already pending",
+            )
 
-    # Cancel is immediate
+    # Cancel is immediate — both types go to CANCELLED, but the flag
+    # tells the daemon how to handle running children.
     if action_enum == Action.CANCEL:
         return TransitionResult(
-            run_status=RunStatus.FAILED.value,
+            run_status=RunStatus.USER_CANCELLED.value,
             clear_action=True,
+            cancel_requested="graceful",
         )
 
-    # Other actions: set action_requested, status unchanged
+    if action_enum == Action.FORCE_CANCEL:
+        return TransitionResult(
+            run_status=RunStatus.USER_CANCELLED.value,
+            clear_action=True,
+            cancel_requested="force",
+        )
+
+    # Map actions to USER_* statuses — daemon will pick these up and process them
+    # This implements the "pair action" principle: backend sets status, daemon updates job.json
+    # Keep action_requested set so report_outcome knows it's an action consumption
+    action_to_status = {
+        Action.APPROVE: RunStatus.USER_APPROVED,
+        Action.REJECT: RunStatus.USER_REJECTED,
+        Action.RESUME: RunStatus.USER_RESUMED,
+        Action.RETRY: RunStatus.USER_RETRIED,
+    }
+
+    if action_enum in action_to_status:
+        new_status = action_to_status[action_enum]
+        logger.info("handle_action_requested_set_user_status", action=action, new_status=new_status.value)
+        return TransitionResult(
+            run_status=new_status.value,
+            action_requested=action,  # Keep action_requested for report_outcome to detect
+        )
+
+    logger.info("handle_action_requested_unknown_action", action=action)
     return TransitionResult(
         run_status=run.run_status,
-        action_requested=action,
+        error=f"Unhandled action: {action}",
     )
 
 
