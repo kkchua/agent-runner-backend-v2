@@ -160,7 +160,7 @@ def delete_worker(
 def get_worker(
     worker_id: str,
     db: Session = Depends(get_db),
-    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
+    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator", "service-account")),
 ) -> WorkerResponse:
     """Get a single worker by ID."""
     w = worker_service.get_worker(db, worker_id)
