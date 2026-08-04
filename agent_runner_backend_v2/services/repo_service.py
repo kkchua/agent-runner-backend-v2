@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from agent_runner_backend_v2.database import repo_repository, workflow_repository
+from agent_runner_backend_v2.database import repo_repository, worker_repository, workflow_repository
 from agent_runner_backend_v2.models.repo import RepoRegistry, RepoWorkflowAssignment
 
 
@@ -20,7 +20,12 @@ def create_repo(
     if existing:
         raise HTTPException(status_code=409, detail=f"Repo '{name}' already exists")
 
-    repo = RepoRegistry(name=name, path=path, worker_id=worker_id)
+    # Look up worker to get UUID
+    worker = worker_repository.get_worker(db, worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail=f"Worker '{worker_id}' not found")
+
+    repo = RepoRegistry(name=name, path=path, worker_id=worker_id, worker_uuid=worker.id)
     return repo_repository.create_repo(db, repo)
 
 
@@ -44,6 +49,12 @@ def update_repo(db: Session, repo_id: str, **kwargs) -> RepoRegistry:
         conflict = repo_repository.get_repo_by_name(db, kwargs["name"])
         if conflict:
             raise HTTPException(status_code=409, detail=f"Repo name '{kwargs['name']}' already exists")
+    # If worker_id is being changed, resolve to worker_uuid
+    if "worker_id" in kwargs:
+        worker = worker_repository.get_worker(db, kwargs["worker_id"])
+        if not worker:
+            raise HTTPException(status_code=404, detail=f"Worker '{kwargs['worker_id']}' not found")
+        kwargs["worker_uuid"] = worker.id
     return repo_repository.update_repo(db, repo, **kwargs)
 
 

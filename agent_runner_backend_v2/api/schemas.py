@@ -34,6 +34,7 @@ class RunResponse(BaseModel):
 
 class RunListResponse(BaseModel):
     runs: list[RunResponse]
+    total: int = 0
 
 
 class ActionRequest(BaseModel):
@@ -72,12 +73,22 @@ class HeartbeatResponse(BaseModel):
     detail: dict | None = None
 
 
+class UpdateWorkerRequest(BaseModel):
+    worker_label: str | None = None
+    status: str | None = None
+    is_enabled: bool | None = None
+    capabilities: dict | None = None
+    host_id: str | None = None
+
+
 class WorkerResponse(BaseModel):
     worker_id: str
     host_id: str | None = None
     hostname: str | None = None
     status: str
     worker_label: str
+    is_enabled: bool = True
+    capabilities: dict = Field(default_factory=dict)
     last_heartbeat: str | None = None
     current_run_id: str | None = None
 
@@ -145,6 +156,12 @@ class CreateHostRequest(BaseModel):
     os_type: str = "windows"
 
 
+class UpdateHostRequest(BaseModel):
+    hostname: str | None = None
+    ip_address: str | None = None
+    os_type: str | None = None
+
+
 class HostResponse(BaseModel):
     id: str
     hostname: str
@@ -187,6 +204,7 @@ class RepoResponse(BaseModel):
     name: str
     path: str
     worker_id: str
+    worker_uuid: str | None = None
     host_id: str | None = None
     hostname: str | None = None
     os_type: str | None = None

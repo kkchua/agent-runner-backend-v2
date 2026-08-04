@@ -9,6 +9,7 @@ from agent_runner_backend_v2.api.schemas import (
     HeartbeatRequest,
     HeartbeatResponse,
     RegisterWorkerRequest,
+    UpdateWorkerRequest,
     WorkerResponse,
 )
 from agent_runner_backend_v2.api.serializers import serialize_worker, serialize_run
@@ -41,18 +42,21 @@ def heartbeat(
     if not w:
         raise HTTPException(status_code=404, detail="Worker not found")
 
+    commands: list[str] = []
+
+    # If worker is disabled, tell daemon to shut down
+    if not w.is_enabled:
+        commands.append("shutdown")
+        return HeartbeatResponse(commands=commands, detail={"reason": "worker_disabled"})
+
     # Check for force-cancelled runs claimed by this worker — daemon must
     # terminate their children immediately.
-    commands: list[str] = []
     force_cancel_runs = run_service.get_force_cancelled_runs(db, worker_id=worker_id)
     if force_cancel_runs:
-        # Return run_ids as a "terminate" command payload
-        # The daemon parses HeartbeatResponse.commands for known keywords
         commands.append("terminate_children")
 
     return HeartbeatResponse(
         commands=commands,
-        # Use detail field to pass force-cancelled run_ids to daemon
         detail={"force_cancel_run_ids": [r.id for r in force_cancel_runs]} if force_cancel_runs else None,
     )
 
@@ -60,6 +64,11 @@ def heartbeat(
 @router.post("/{worker_id}/claim")
 def claim_work(worker_id: str, db: Session = Depends(get_db)) -> ClaimResponse:
     """Claim the next available work for a worker."""
+    # Reject if worker is disabled
+    worker = worker_repository.get_worker(db, worker_id)
+    if worker and not worker.is_enabled:
+        return ClaimResponse(work_type="IDLE")
+
     work = run_service.claim_work(db, worker_id=worker_id)
     if not work:
         return ClaimResponse(work_type="IDLE")
@@ -104,6 +113,28 @@ def stop_worker(worker_id: str, db: Session = Depends(get_db)) -> dict:
     if not ok:
         raise HTTPException(status_code=404, detail="Worker not found")
     return {"status": "ok", "message": f"Worker {worker_id} stopped"}
+
+
+@router.put("/{worker_id}")
+def update_worker(worker_id: str, req: UpdateWorkerRequest, db: Session = Depends(get_db)) -> WorkerResponse:
+    """Update a worker's fields."""
+    updates = req.model_dump(exclude_unset=True)
+    w = worker_service.update_worker(db, worker_id, **updates)
+    return serialize_worker(w)
+
+
+@router.delete("/{worker_id}")
+def delete_worker(worker_id: str, db: Session = Depends(get_db)) -> dict:
+    """Delete a worker from the registry."""
+    worker_service.delete_worker(db, worker_id)
+    return {"status": "ok", "message": f"Worker {worker_id} deleted"}
+
+
+@router.get("/{worker_id}")
+def get_worker(worker_id: str, db: Session = Depends(get_db)) -> WorkerResponse:
+    """Get a single worker by ID."""
+    w = worker_service.get_worker(db, worker_id)
+    return serialize_worker(w)
 
 
 @router.get("")

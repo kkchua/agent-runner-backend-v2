@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from agent_runner_backend_v2.api.schemas import CreateHostRequest, HostResponse
+from agent_runner_backend_v2.api.schemas import CreateHostRequest, HostResponse, UpdateHostRequest
 from agent_runner_backend_v2.api.serializers import serialize_host
 from agent_runner_backend_v2.database import get_db
 from agent_runner_backend_v2.services import host_service
@@ -35,6 +35,14 @@ def create_host(req: CreateHostRequest, db: Session = Depends(get_db)) -> HostRe
 def get_host(host_id: str, db: Session = Depends(get_db)) -> HostResponse:
     """Get host detail."""
     host = host_service.get_host(db, host_id)
+    return serialize_host(host)
+
+
+@router.put("/{host_id}")
+def update_host(host_id: str, req: UpdateHostRequest, db: Session = Depends(get_db)) -> HostResponse:
+    """Update a host's fields."""
+    updates = req.model_dump(exclude_unset=True)
+    host = host_service.update_host(db, host_id, **updates)
     return serialize_host(host)
 
 

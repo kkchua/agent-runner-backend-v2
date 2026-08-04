@@ -63,6 +63,8 @@ def serialize_worker(worker: WorkerRegistry) -> WorkerResponse:
         hostname=hostname,
         status=worker.status,
         worker_label=worker.worker_label,
+        is_enabled=worker.is_enabled,
+        capabilities=worker.capabilities or {},
         last_heartbeat=worker.last_heartbeat.isoformat() if worker.last_heartbeat else None,
         current_run_id=worker.current_run_id,
     )
@@ -106,6 +108,7 @@ def serialize_repo(repo: RepoRegistry) -> RepoResponse:
         name=repo.name,
         path=repo.path,
         worker_id=repo.worker_id,
+        worker_uuid=repo.worker_uuid,
         host_id=repo.worker.host_id if repo.worker else None,
         hostname=hostname,
         os_type=os_type,

@@ -21,11 +21,11 @@ def list_repos(db: Session) -> list[RepoRegistry]:
     return db.query(RepoRegistry).order_by(RepoRegistry.name).all()
 
 
-def list_repos_by_worker(db: Session, worker_id: str) -> list[RepoRegistry]:
+def list_repos_by_worker(db: Session, worker_uuid: str) -> list[RepoRegistry]:
     """List repos assigned to a specific worker."""
     return (
         db.query(RepoRegistry)
-        .filter(RepoRegistry.worker_id == worker_id)
+        .filter(RepoRegistry.worker_uuid == worker_uuid)
         .order_by(RepoRegistry.name)
         .all()
     )

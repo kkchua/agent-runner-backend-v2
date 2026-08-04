@@ -28,8 +28,13 @@ def list_runs(
     statuses: list[str] | None = None,
     worker_id: str | None = None,
     workflow_name: str | None = None,
-) -> list[WorkflowRun]:
-    """List workflow runs with optional filters, ordered by creation date descending."""
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[WorkflowRun], int]:
+    """List workflow runs with optional filters, ordered by creation date descending.
+
+    Returns (runs, total_count).
+    """
     query = db.query(WorkflowRun)
     if run_status:
         query = query.filter(WorkflowRun.run_status == run_status)
@@ -44,7 +49,13 @@ def list_runs(
         query = query.join(WorkflowRun.workflow_definition).filter(
             WorkflowRun.workflow_definition.has(name=workflow_name)
         )
-    return query.order_by(WorkflowRun.created_at.desc()).all()
+    total = query.count()
+    query = query.order_by(WorkflowRun.created_at.desc())
+    if offset:
+        query = query.offset(offset)
+    if limit:
+        query = query.limit(limit)
+    return query.all(), total
 
 
 def list_claimable_runs(db: Session, *, worker_id: str) -> list[WorkflowRun]:

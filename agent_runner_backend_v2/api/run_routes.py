@@ -44,6 +44,8 @@ def list_runs(
     status: str | None = None,
     worker_id: str | None = None,
     workflow_name: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
     db: Session = Depends(get_db),
 ) -> RunListResponse:
     """List workflow runs with optional filters."""
@@ -55,14 +57,16 @@ def list_runs(
     elif status == "terminal":
         statuses = ["COMPLETED", "FAILED", "CANCELLED", "USER_CANCELLED"]
 
-    runs = run_repository.list_runs(
+    runs, total = run_repository.list_runs(
         db,
         statuses=statuses,
         run_status=status if status not in ("active", "terminal") else None,
         worker_id=worker_id,
         workflow_name=workflow_name,
+        limit=limit,
+        offset=offset,
     )
-    return RunListResponse(runs=[serialize_run(r) for r in runs])
+    return RunListResponse(runs=[serialize_run(r) for r in runs], total=total)
 
 
 @router.get("/{run_id}")

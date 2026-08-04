@@ -69,8 +69,9 @@ class TestRunCRUD:
         _make_run(db_session, wf, run_code="J1")
         _make_run(db_session, wf, run_code="J2")
 
-        runs = run_repository.list_runs(db_session)
+        runs, total = run_repository.list_runs(db_session)
         assert len(runs) == 2
+        assert total == 2
 
     def test_list_runs_by_status(self, db_session: Session):
         wf = _make_workflow(db_session)
@@ -78,8 +79,9 @@ class TestRunCRUD:
         _make_run(db_session, wf, run_code="J2", run_status="PENDING")
         _make_run(db_session, wf, run_code="J3", run_status="SUBMITTED")
 
-        runs = run_repository.list_runs(db_session, run_status="SUBMITTED")
+        runs, total = run_repository.list_runs(db_session, run_status="SUBMITTED")
         assert len(runs) == 2
+        assert total == 2
 
     def test_list_runs_by_multiple_statuses(self, db_session: Session):
         wf = _make_workflow(db_session)
@@ -87,8 +89,9 @@ class TestRunCRUD:
         _make_run(db_session, wf, run_code="J2", run_status="RUNNING")
         _make_run(db_session, wf, run_code="J3", run_status="COMPLETED")
 
-        runs = run_repository.list_runs(db_session, statuses=["SUBMITTED", "RUNNING"])
+        runs, total = run_repository.list_runs(db_session, statuses=["SUBMITTED", "RUNNING"])
         assert len(runs) == 2
+        assert total == 2
 
 
 class TestClaimQuery:
