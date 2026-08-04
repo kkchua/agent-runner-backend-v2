@@ -15,6 +15,8 @@ from agent_runner_backend_v2.api.schemas import (
     SubmitRunRequest,
 )
 from agent_runner_backend_v2.api.serializers import serialize_run
+from agent_runner_backend_v2.auth.rbac import require_jwt_or_api_key
+from agent_runner_backend_v2.auth.supabase_auth import UserContext
 from agent_runner_backend_v2.database import get_db, run_repository
 from agent_runner_backend_v2.services import run_service
 
@@ -24,7 +26,11 @@ router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
 @router.post("", status_code=201)
-def submit_run(req: SubmitRunRequest, db: Session = Depends(get_db)) -> RunResponse:
+def submit_run(
+    req: SubmitRunRequest,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
+) -> RunResponse:
     """Submit a new workflow run."""
     run = run_service.submit_run(
         db,
@@ -47,6 +53,7 @@ def list_runs(
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
 ) -> RunListResponse:
     """List workflow runs with optional filters."""
     statuses = None
@@ -70,7 +77,11 @@ def list_runs(
 
 
 @router.get("/{run_id}")
-def get_run(run_id: str, db: Session = Depends(get_db)) -> RunResponse:
+def get_run(
+    run_id: str,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
+) -> RunResponse:
     """Get run detail with valid actions."""
     detail = run_service.get_run_detail(db, run_id)
     if not detail:
@@ -80,7 +91,10 @@ def get_run(run_id: str, db: Session = Depends(get_db)) -> RunResponse:
 
 @router.post("/{run_id}/action")
 def request_action(
-    run_id: str, req: ActionRequest, db: Session = Depends(get_db),
+    run_id: str,
+    req: ActionRequest,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
 ) -> RunResponse:
     """Request an action on a run (approve, reject, resume, retry, cancel).
 
@@ -111,7 +125,10 @@ def request_action(
 
 @router.post("/{run_id}/reset-step")
 def reset_step(
-    run_id: str, req: ResetStepRequest, db: Session = Depends(get_db),
+    run_id: str,
+    req: ResetStepRequest,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
 ) -> RunResponse:
     """Reset a run's current step."""
     run = run_service.reset_step(db, run_id=run_id, step_name=req.step_name)
@@ -121,7 +138,10 @@ def reset_step(
 
 @router.post("/step-runs/{step_run_id}/outcome")
 def report_outcome(
-    step_run_id: str, req: OutcomeRequest, db: Session = Depends(get_db),
+    step_run_id: str,
+    req: OutcomeRequest,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator", "service-account")),
 ) -> OutcomeResponse:
     """Report a step outcome — backend computes next state."""
     logger.info("api_report_outcome", step_run_id=step_run_id, outcome=req.outcome, failure_class=req.failure_class)

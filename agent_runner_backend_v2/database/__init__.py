@@ -59,5 +59,6 @@ def get_db_context() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     """Import all ORM models and create tables if they don't exist."""
+    from agent_runner_backend_v2.auth import models as auth_models  # noqa: F401
     from agent_runner_backend_v2.models import host, repo, run, worker, workflow  # noqa: F401
     Base.metadata.create_all(bind=engine)
