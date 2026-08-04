@@ -42,17 +42,24 @@ class MenuItem:
 
 AGENT_RUNNER_MENU: list[MenuItem] = [
     MenuItem(
-        id="dashboard",
-        label="Dashboard",
-        icon="LayoutDashboard",
+        id="runs",
+        label="Active Runs",
+        icon="Play",
         path="/",
         required_roles=["admin", "operator", "viewer"],
     ),
     MenuItem(
-        id="runs",
-        label="Runs",
+        id="history",
+        label="History",
+        icon="LayoutDashboard",
+        path="/history",
+        required_roles=["admin", "operator", "viewer"],
+    ),
+    MenuItem(
+        id="submit",
+        label="Submit Job",
         icon="Play",
-        path="/runs",
+        path="/submit",
         required_roles=["admin", "operator"],
     ),
     MenuItem(
@@ -82,36 +89,6 @@ AGENT_RUNNER_MENU: list[MenuItem] = [
         icon="FolderGit",
         path="/repos",
         required_roles=["admin"],
-    ),
-    MenuItem(
-        id="settings",
-        label="Settings",
-        icon="Settings",
-        path="/settings",
-        required_roles=["admin"],
-        children=[
-            MenuItem(
-                id="settings-general",
-                label="General",
-                icon="Sliders",
-                path="/settings/general",
-                required_roles=["admin"],
-            ),
-            MenuItem(
-                id="settings-api-keys",
-                label="API Keys",
-                icon="Key",
-                path="/settings/api-keys",
-                required_roles=["admin"],
-            ),
-            MenuItem(
-                id="settings-users",
-                label="Users",
-                icon="Users",
-                path="/settings/users",
-                required_roles=["admin"],
-            ),
-        ],
     ),
 ]
 

@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 def sync_workflow(
     req: SyncWorkflowRequest,
     db: Session = Depends(get_db),
-    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
+    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator", "service-account")),
 ) -> WorkflowResponse:
     """Sync a workflow definition from the runner."""
     wf = workflow_service.sync_workflow(
