@@ -52,6 +52,7 @@ class WorkflowRun(Base):
     # Execution context
     project_root = Column(Text, nullable=True)
     workspace_path = Column(Text, nullable=True)
+    job_dir = Column(Text, nullable=True)  # Full path to local job folder (set by daemon on first outcome)
     input_payload = Column(JSONB, nullable=False, default=dict)
     context_payload = Column(JSONB, nullable=False, default=dict)
     error_message = Column(Text, nullable=True)

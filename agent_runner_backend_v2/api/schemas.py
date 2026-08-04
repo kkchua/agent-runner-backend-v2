@@ -26,6 +26,7 @@ class RunResponse(BaseModel):
     current_step: str | None = None
     current_step_run_id: str | None = None
     worker_id: str | None = None
+    job_dir: str | None = None
     created_at: str
     updated_at: str
     valid_actions: list[str] = Field(default_factory=list)
@@ -105,6 +106,7 @@ class OutcomeRequest(BaseModel):
     review: dict | None = None
     error_message: str | None = None
     usage_summary: dict | None = None
+    job_dir: str | None = None  # Full path to local job folder (set on first outcome)
 
 
 class OutcomeResponse(BaseModel):

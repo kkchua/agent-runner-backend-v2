@@ -178,10 +178,12 @@ def report_outcome(
     review: dict | None = None,
     error_message: str | None = None,
     usage_summary: dict | None = None,
+    job_dir: str | None = None,
 ) -> WorkflowRun:
     """Report a step outcome and compute the next state via the state machine.
 
     This is the key endpoint: CLI reports what happened, backend decides what's next.
+    If job_dir is provided and not yet stored on the run, it is persisted.
     """
     step_run = run_repository.get_step_run_by_id(db, step_run_id)
     if not step_run:
@@ -190,6 +192,10 @@ def report_outcome(
     run = run_repository.get_run_by_id(db, step_run.workflow_run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found for step run")
+
+    # Store job_dir on first outcome (daemon provides the local job path)
+    if job_dir and not run.job_dir:
+        run.job_dir = job_dir
 
     workflow = run.workflow_definition
 

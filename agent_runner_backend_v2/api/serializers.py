@@ -32,6 +32,7 @@ def serialize_run(run: WorkflowRun, valid_actions: list[str] | None = None) -> R
         current_step=run.current_step_name,
         current_step_run_id=run.current_step_run_id,
         worker_id=run.claimed_by_worker or run.target_worker_id,
+        job_dir=run.job_dir,
         created_at=run.created_at.isoformat() if run.created_at else "",
         updated_at=run.updated_at.isoformat() if run.updated_at else "",
         valid_actions=valid_actions or get_valid_actions(run),

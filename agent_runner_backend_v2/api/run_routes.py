@@ -35,6 +35,7 @@ def submit_run(req: SubmitRunRequest, db: Session = Depends(get_db)) -> RunRespo
         input_payload=req.input_payload,
         start_step=req.start_step,
     )
+    db.commit()
     return serialize_run(run)
 
 
@@ -91,6 +92,9 @@ def request_action(
         run = run_service.request_action(
             db, run_id=run_id, action=action, feedback=req.feedback,
         )
+        # Commit before responding so the daemon's next claim sees the
+        # USER_* status (see claim_work for the same rationale).
+        db.commit()
         logger.info("api_request_action_success", run_id=run_id, new_status=run.run_status)
         return serialize_run(run)
     except HTTPException:
@@ -107,6 +111,7 @@ def reset_step(
 ) -> RunResponse:
     """Reset a run's current step."""
     run = run_service.reset_step(db, run_id=run_id, step_name=req.step_name)
+    db.commit()
     return serialize_run(run)
 
 
@@ -126,7 +131,11 @@ def report_outcome(
             review=req.review,
             error_message=req.error_message,
             usage_summary=req.usage_summary,
+            job_dir=req.job_dir,
         )
+        # Commit before responding so the next claim (which keys on the
+        # transitioned run state) sees a durable outcome.
+        db.commit()
         logger.info("api_report_outcome_success", step_run_id=step_run_id, new_status=run.run_status, action_requested=run.action_requested)
         return OutcomeResponse(
             run_id=run.id,

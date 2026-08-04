@@ -64,6 +64,15 @@ def claim_work(worker_id: str, db: Session = Depends(get_db)) -> ClaimResponse:
     if not work:
         return ClaimResponse(work_type="IDLE")
 
+    # Commit BEFORE responding: the daemon acts on the claim response
+    # immediately (fetches run state, spawns a child whose outcome POST is
+    # keyed on this step run). FastAPI's get_db dependency commits in its
+    # teardown, which runs AFTER the response is sent — so without an
+    # explicit commit the claim (step run INSERT + run UPDATE) could still
+    # be uncommitted when the child reports its outcome, yielding a
+    # "Step run not found" 404 and a permanently stalled run.
+    db.commit()
+
     run = work["run"]
     step_run = work["step_run"]
 
@@ -72,6 +81,7 @@ def claim_work(worker_id: str, db: Session = Depends(get_db)) -> ClaimResponse:
         "run_code": run.run_code,
         "workflow_name": run.workflow_definition.name if run.workflow_definition else "",
         "project_root": run.project_root,
+        "job_dir": run.job_dir,
     }
     step_data = {
         "step_run_id": step_run.id,
