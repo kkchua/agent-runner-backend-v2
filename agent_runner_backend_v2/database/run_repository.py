@@ -63,6 +63,7 @@ def list_claimable_runs(db: Session, *, worker_id: str) -> list[WorkflowRun]:
 
     Returns runs where run_status IN (USER_SUBMITTED, PENDING) AND action_requested IS NULL
     AND cancel_requested IS NULL (cancelled runs are not claimable).
+    If target_worker_id is set, only that worker can claim; if NULL, any worker can.
     """
     return (
         db.query(WorkflowRun)
@@ -70,6 +71,8 @@ def list_claimable_runs(db: Session, *, worker_id: str) -> list[WorkflowRun]:
             WorkflowRun.run_status.in_(["USER_SUBMITTED", "PENDING"]),
             WorkflowRun.action_requested.is_(None),
             WorkflowRun.cancel_requested.is_(None),
+            (WorkflowRun.target_worker_id.is_(None))
+            | (WorkflowRun.target_worker_id == worker_id),
         )
         .order_by(WorkflowRun.created_at.asc())
         .all()
@@ -83,15 +86,17 @@ def list_action_pending_runs(db: Session, *, worker_id: str | None = None) -> li
     and the status has been set to USER_* to signal the daemon to process it.
 
     Returns runs where run_status IN (USER_APPROVED, USER_REJECTED, USER_RESUMED, USER_RETRIED).
+    If worker_id is given, only returns runs claimed by that worker.
     """
-    return (
-        db.query(WorkflowRun)
-        .filter(
-            WorkflowRun.run_status.in_(["USER_APPROVED", "USER_REJECTED", "USER_RESUMED", "USER_RETRIED"]),
-        )
-        .order_by(WorkflowRun.created_at.asc())
-        .all()
+    query = db.query(WorkflowRun).filter(
+        WorkflowRun.run_status.in_(["USER_APPROVED", "USER_REJECTED", "USER_RESUMED", "USER_RETRIED"]),
     )
+    if worker_id:
+        query = query.filter(
+            (WorkflowRun.claimed_by_worker == worker_id)
+            | (WorkflowRun.claimed_by_worker.is_(None))
+        )
+    return query.order_by(WorkflowRun.created_at.asc()).all()
 
 
 def list_force_cancelled_runs(db: Session, *, worker_id: str) -> list[WorkflowRun]:
