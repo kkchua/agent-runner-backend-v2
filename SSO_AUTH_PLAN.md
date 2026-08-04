@@ -200,6 +200,61 @@ agent-runner-platform/
 
 ---
 
+## API Key Management
+
+### Storage Locations
+
+**Backend database** (`api_keys` table):
+- Stores bcrypt hash of the key (never the plain text)
+- Fields: `id`, `key_hash`, `key_prefix` (first 11 chars for identification), `name`, `role`, `created_by`, `expires_at`, `is_active`, `created_at`, `last_used_at`
+- The plain key is only returned once when created — store it securely!
+
+**Daemon config** (`~/.ukbe-runner/config.json`):
+- Stores the plain text API key in the `v2_api_key` field
+- Example:
+  ```json
+  {
+    "v2_backend_url": "http://192.168.0.200:8200",
+    "v2_api_key": "arb_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  }
+  ```
+- Alternative: Set environment variable `AGENT_RUNNER_V2_API_KEY` (takes priority over config)
+
+### API Key Rotation
+
+To rotate/change an API key:
+
+```bash
+# 1. List existing API keys to get the key ID
+curl http://127.0.0.1:8200/api/auth/api-keys \
+  -H "Authorization: Bearer <JWT_TOKEN>"
+
+# 2. Revoke the old key
+curl -X DELETE http://127.0.0.1:8200/api/auth/api-keys/<KEY_ID> \
+  -H "Authorization: Bearer <JWT_TOKEN>"
+
+# 3. Create a new key
+curl -X POST http://127.0.0.1:8200/api/auth/api-keys \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "chua-worker-01", "role": "service-account"}'
+# Save the returned "key" value — it won't be shown again!
+
+# 4. Update daemon config
+# Edit ~/.ukbe-runner/config.json and update the "v2_api_key" field
+# Or set environment variable: export AGENT_RUNNER_V2_API_KEY="arb_..."
+
+# 5. Restart the daemon
+```
+
+### Current API Keys
+
+| Name | Role | Key ID | Created |
+|------|------|--------|---------|
+| chua-worker-01 | service-account | 600a2300-ce2e-4527-99a7-bca37574de6b | 2026-08-04 |
+
+---
+
 ## Operational Commands
 
 ### Create an API key
