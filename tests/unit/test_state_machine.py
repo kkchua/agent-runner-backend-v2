@@ -201,7 +201,7 @@ class TestRefineLoop:
 
         review = WorkflowStepDefinition(
             workflow_definition_id=wf.id, step_name="review", step_order=1,
-            raw_config={"on_reject_refine": {"refine_step": "refine", "max_iterations": 2}},
+            raw_config={"on_reject_refine": {"step": "refine", "max_iterations": 2}},
         )
         workflow_repository.create_step_definition(db, review)
 

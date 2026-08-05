@@ -271,7 +271,7 @@ def _handle_rejected(
     if current_step:
         refine_config = current_step.raw_config.get("on_reject_refine") or {}
         max_iterations = refine_config.get("max_iterations", 0)
-        refine_step = refine_config.get("refine_step")
+        refine_step = refine_config.get("step")  # Key is "step" in workflow.toml
 
         if refine_step and max_iterations > 0:
             iterations = run.refine_iterations.get(run.current_step_name, 0)
