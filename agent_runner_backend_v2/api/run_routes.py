@@ -53,7 +53,7 @@ def list_runs(
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db),
-    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
+    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator", "service-account")),
 ) -> RunListResponse:
     """List workflow runs with optional filters."""
     statuses = None
@@ -128,7 +128,7 @@ def reset_step(
     run_id: str,
     req: ResetStepRequest,
     db: Session = Depends(get_db),
-    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
+    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator", "service-account")),
 ) -> RunResponse:
     """Reset a run's current step."""
     run = run_service.reset_step(db, run_id=run_id, step_name=req.step_name)
