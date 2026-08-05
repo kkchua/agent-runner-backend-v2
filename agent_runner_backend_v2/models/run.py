@@ -32,9 +32,13 @@ class WorkflowRun(Base):
     )
 
     # V2 two-field state machine
-    run_status = Column(String(40), nullable=False, default="SUBMITTED", index=True)
+    run_status = Column(String(40), nullable=False, default="USER_SUBMITTED", index=True)
     action_requested = Column(String(40), nullable=True, index=True)
     action_feedback = Column(Text, nullable=True)
+
+    # Cancel tracking — normal cancel sets this flag so claim_work stops
+    # serving the run while letting the current child finish naturally.
+    cancel_requested = Column(String(20), nullable=True)  # "graceful" or "force"
 
     # Step tracking
     current_step_name = Column(String(120), nullable=True)
@@ -48,6 +52,7 @@ class WorkflowRun(Base):
     # Execution context
     project_root = Column(Text, nullable=True)
     workspace_path = Column(Text, nullable=True)
+    job_dir = Column(Text, nullable=True)  # Full path to local job folder (set by daemon on first outcome)
     input_payload = Column(JSONB, nullable=False, default=dict)
     context_payload = Column(JSONB, nullable=False, default=dict)
     error_message = Column(Text, nullable=True)

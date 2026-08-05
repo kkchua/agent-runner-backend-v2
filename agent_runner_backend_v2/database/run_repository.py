@@ -28,8 +28,13 @@ def list_runs(
     statuses: list[str] | None = None,
     worker_id: str | None = None,
     workflow_name: str | None = None,
-) -> list[WorkflowRun]:
-    """List workflow runs with optional filters, ordered by creation date descending."""
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[WorkflowRun], int]:
+    """List workflow runs with optional filters, ordered by creation date descending.
+
+    Returns (runs, total_count).
+    """
     query = db.query(WorkflowRun)
     if run_status:
         query = query.filter(WorkflowRun.run_status == run_status)
@@ -44,19 +49,30 @@ def list_runs(
         query = query.join(WorkflowRun.workflow_definition).filter(
             WorkflowRun.workflow_definition.has(name=workflow_name)
         )
-    return query.order_by(WorkflowRun.created_at.desc()).all()
+    total = query.count()
+    query = query.order_by(WorkflowRun.created_at.desc())
+    if offset:
+        query = query.offset(offset)
+    if limit:
+        query = query.limit(limit)
+    return query.all(), total
 
 
 def list_claimable_runs(db: Session, *, worker_id: str) -> list[WorkflowRun]:
-    """List runs available for claim by a worker.
+    """List runs available for claim by a worker as EXECUTE_STEP.
 
-    Returns runs where run_status IN (SUBMITTED, PENDING) AND action_requested IS NULL.
+    Returns runs where run_status IN (USER_SUBMITTED, PENDING) AND action_requested IS NULL
+    AND cancel_requested IS NULL (cancelled runs are not claimable).
+    If target_worker_id is set, only that worker can claim; if NULL, any worker can.
     """
     return (
         db.query(WorkflowRun)
         .filter(
-            WorkflowRun.run_status.in_(["SUBMITTED", "PENDING"]),
+            WorkflowRun.run_status.in_(["USER_SUBMITTED", "PENDING"]),
             WorkflowRun.action_requested.is_(None),
+            WorkflowRun.cancel_requested.is_(None),
+            (WorkflowRun.target_worker_id.is_(None))
+            | (WorkflowRun.target_worker_id == worker_id),
         )
         .order_by(WorkflowRun.created_at.asc())
         .all()
@@ -64,22 +80,46 @@ def list_claimable_runs(db: Session, *, worker_id: str) -> list[WorkflowRun]:
 
 
 def list_action_pending_runs(db: Session, *, worker_id: str | None = None) -> list[WorkflowRun]:
-    """List runs with a pending action.
+    """List runs with a pending user action (PROCESS_ACTION).
 
-    Action-pending runs are served to any available worker (not just the
-    originally assigned one), since the action may need to be processed
-    regardless of which worker is free.
+    These are runs where the user has requested an action (approve, reject, etc.)
+    and the status has been set to USER_* to signal the daemon to process it.
 
-    Excludes terminal statuses (COMPLETED, FAILED).
+    Returns runs where run_status IN (USER_APPROVED, USER_REJECTED, USER_RESUMED, USER_RETRIED).
+    If worker_id is given, only returns runs claimed by that worker.
     """
+    query = db.query(WorkflowRun).filter(
+        WorkflowRun.run_status.in_(["USER_APPROVED", "USER_REJECTED", "USER_RESUMED", "USER_RETRIED"]),
+    )
+    if worker_id:
+        query = query.filter(
+            (WorkflowRun.claimed_by_worker == worker_id)
+            | (WorkflowRun.claimed_by_worker.is_(None))
+        )
+    return query.order_by(WorkflowRun.created_at.asc()).all()
+
+
+def list_force_cancelled_runs(db: Session, *, worker_id: str) -> list[WorkflowRun]:
+    """List runs with force-cancel pending, claimed by this worker."""
     return (
         db.query(WorkflowRun)
         .filter(
-            WorkflowRun.action_requested.isnot(None),
-            WorkflowRun.run_status.notin_(["COMPLETED", "FAILED"]),
+            WorkflowRun.cancel_requested == "force",
+            WorkflowRun.claimed_by_worker == worker_id,
         )
-        .order_by(WorkflowRun.created_at.asc())
         .all()
+    )
+
+
+def count_active_runs(db: Session, *, worker_id: str) -> int:
+    """Count runs currently being executed by a worker (RUNNING status)."""
+    return (
+        db.query(WorkflowRun)
+        .filter(
+            WorkflowRun.claimed_by_worker == worker_id,
+            WorkflowRun.run_status == "RUNNING",
+        )
+        .count()
     )
 
 
@@ -102,8 +142,9 @@ def update_run_status(
 ) -> WorkflowRun:
     """Update a run's state machine fields."""
     run.run_status = run_status
-    if current_step_name is not None:
+    if current_step_name is not None and current_step_name != run.current_step_name:
         run.current_step_name = current_step_name
+        run.current_step_run_id = None  # Clear stale step_run reference on step change
     if current_step_run_id is not None:
         run.current_step_run_id = current_step_run_id
     if clear_action:

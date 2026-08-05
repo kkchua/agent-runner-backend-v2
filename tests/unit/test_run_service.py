@@ -91,22 +91,37 @@ class TestClaimWork:
         work = run_service.claim_work(db_session, worker_id="w1")
         assert work is None
 
-    def test_claim_skips_action_pending(self, db_session: Session):
+    def test_claim_skips_waiting_for_human_approval(self, db_session: Session):
         _seed_workflow(db_session)
         run = run_service.submit_run(db_session, workflow_name="svc_test_wf")
-        # Simulate: run is awaiting approval with action
+        # Simulate: run is waiting for human approval with action
         run_repository.update_run_status(
             db_session, run,
-            run_status="AWAITING_APPROVAL",
+            run_status="WAITING_FOR_HUMAN_APPROVAL",
             action_requested="APPROVE",
         )
 
         work = run_service.claim_work(db_session, worker_id="w1")
 
-        # Should return PROCESS_ACTION, not EXECUTE_STEP
+        # Should return None — daemon does not process human approval actions
+        assert work is None
+
+    def test_claim_processes_action_in_running_status(self, db_session: Session):
+        _seed_workflow(db_session)
+        run = run_service.submit_run(db_session, workflow_name="svc_test_wf")
+        # Simulate: run is in RUNNING status with a retry action
+        run_repository.update_run_status(
+            db_session, run,
+            run_status="RUNNING",
+            action_requested="RETRY",
+        )
+
+        work = run_service.claim_work(db_session, worker_id="w1")
+
+        # Should return PROCESS_ACTION for non-approval actions
         assert work is not None
         assert work["work_type"] == "PROCESS_ACTION"
-        assert work["action"] == "APPROVE"
+        assert work["action"] == "RETRY"
 
 
 class TestReportOutcome:
@@ -139,7 +154,7 @@ class TestReportOutcome:
             outcome="approved",
         )
 
-        assert result_run.run_status == "AWAITING_APPROVAL"
+        assert result_run.run_status == "WAITING_FOR_HUMAN_APPROVAL"
 
     def test_completed_when_last_step_approved(self, db_session: Session):
         _seed_workflow(db_session)
@@ -209,7 +224,7 @@ class TestRequestAction:
         _seed_workflow(db_session)
         run = run_service.submit_run(db_session, workflow_name="svc_test_wf")
         run_repository.update_run_status(
-            db_session, run, run_status="AWAITING_APPROVAL",
+            db_session, run, run_status="WAITING_FOR_HUMAN_APPROVAL",
         )
 
         result = run_service.request_action(
@@ -219,7 +234,7 @@ class TestRequestAction:
         assert result.action_requested == "APPROVE"
         assert result.action_feedback == "looks good"
 
-    def test_cancel_sets_failed(self, db_session: Session):
+    def test_cancel_sets_cancelled(self, db_session: Session):
         _seed_workflow(db_session)
         run = run_service.submit_run(db_session, workflow_name="svc_test_wf")
 
@@ -227,7 +242,8 @@ class TestRequestAction:
             db_session, run_id=run.id, action="CANCEL",
         )
 
-        assert result.run_status == "FAILED"
+        assert result.run_status == "CANCELLED"
+        assert result.cancel_requested == "graceful"
 
     def test_invalid_action_raises_422(self, db_session: Session):
         _seed_workflow(db_session)
@@ -242,7 +258,7 @@ class TestRequestAction:
         _seed_workflow(db_session)
         run = run_service.submit_run(db_session, workflow_name="svc_test_wf")
         run_repository.update_run_status(
-            db_session, run, run_status="AWAITING_APPROVAL", action_requested="APPROVE",
+            db_session, run, run_status="WAITING_FOR_HUMAN_APPROVAL", action_requested="APPROVE",
         )
 
         with pytest.raises(HTTPException) as exc_info:
@@ -279,7 +295,7 @@ class TestGetRunDetail:
         _seed_workflow(db_session)
         run = run_service.submit_run(db_session, workflow_name="svc_test_wf")
         run_repository.update_run_status(
-            db_session, run, run_status="AWAITING_APPROVAL",
+            db_session, run, run_status="WAITING_FOR_HUMAN_APPROVAL",
         )
 
         detail = run_service.get_run_detail(db_session, run.id)

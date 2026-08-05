@@ -92,7 +92,7 @@ class TestWorkflowRunDefaults:
         run = WorkflowRun(
             run_code="JOB-002",
             workflow_definition_id=wf.id,
-            run_status="AWAITING_APPROVAL",
+            run_status="WAITING_FOR_HUMAN_APPROVAL",
             action_requested=None,
         )
         db_session.add(run)
@@ -111,7 +111,7 @@ class TestWorkflowRunDefaults:
             run = WorkflowRun(
                 run_code=f"JOB-{action}",
                 workflow_definition_id=wf.id,
-                run_status="AWAITING_APPROVAL",
+                run_status="WAITING_FOR_HUMAN_APPROVAL",
                 action_requested=action,
             )
             db_session.add(run)

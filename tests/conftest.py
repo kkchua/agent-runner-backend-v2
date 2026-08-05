@@ -20,6 +20,7 @@ os.environ["AGENT_RUNNER_DATABASE_URL"] = TEST_DATABASE_URL
 from agent_runner_backend_v2.database import Base  # noqa: E402
 
 # Import all models so Base.metadata knows about every table
+from agent_runner_backend_v2.auth.models import APIKey  # noqa: F401, E402
 from agent_runner_backend_v2.models import host, repo, run, worker, workflow  # noqa: F401, E402
 
 engine = create_engine(TEST_DATABASE_URL)

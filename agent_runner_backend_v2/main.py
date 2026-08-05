@@ -8,13 +8,16 @@ from contextlib import asynccontextmanager
 import structlog
 import uvicorn
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from agent_runner_backend_v2.api.routes import router
 from agent_runner_backend_v2.config import settings
 from agent_runner_backend_v2.database import SessionLocal, engine, init_db
+from agent_runner_backend_v2.logging_config import setup_logging
 
-logger = structlog.get_logger(__name__)
+# Initialize logging
+logger = setup_logging()
 
 _FORCE_EXIT_TIMEOUT_SECONDS = 5.0
 
@@ -33,6 +36,11 @@ async def lifespan(app: FastAPI):
         logger.error("startup failed", error=str(exc))
         raise
 
+    # Pre-fetch JWKS keys for JWT validation (avoids blocking the event loop on first request)
+    if settings.auth_enabled:
+        from agent_runner_backend_v2.auth.supabase_auth import preload_jwks
+        preload_jwks()
+
     yield
 
     engine.dispose()
@@ -47,6 +55,17 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    # CORS middleware
+    if settings.CORS_ORIGINS:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.CORS_ORIGINS,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
     app.include_router(router)
     return app
 

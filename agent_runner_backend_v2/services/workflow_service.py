@@ -59,8 +59,19 @@ def sync_workflow(
 
 
 def _sync_steps(db: Session, wf: WorkflowDefinition, definition: dict) -> None:
-    """Sync step definitions, transitions, coder policies, and artifact bindings."""
+    """Sync step definitions, transitions, coder policies, and artifact bindings.
+
+    Uses clean slate approach: deletes all existing steps and recreates them
+    to avoid unique constraint violations when step order changes.
+    """
     steps_config = definition.get("steps", {})
+
+    # Delete existing steps to avoid unique constraint violations on step_order
+    # This is safe because we check for active runs before syncing
+    for step in list(wf.steps):
+        db.delete(step)
+    db.flush()
+
     if isinstance(steps_config, list):
         # Legacy format: list of step names
         for i, step_name in enumerate(steps_config):

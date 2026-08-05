@@ -63,3 +63,25 @@ def stop_worker(db: Session, *, worker_id: str) -> bool:
     worker.status = "stopped"
     db.flush()
     return True
+
+
+def get_worker(db: Session, worker_id: str) -> WorkerRegistry:
+    """Get a worker by ID, raising 404 if not found."""
+    from fastapi import HTTPException
+
+    worker = worker_repository.get_worker(db, worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail=f"Worker {worker_id} not found")
+    return worker
+
+
+def update_worker(db: Session, worker_id: str, **kwargs) -> WorkerRegistry:
+    """Update a worker's fields."""
+    worker = get_worker(db, worker_id)
+    return worker_repository.update_worker(db, worker, **kwargs)
+
+
+def delete_worker(db: Session, worker_id: str) -> None:
+    """Delete a worker from the registry."""
+    worker = get_worker(db, worker_id)
+    worker_repository.delete_worker(db, worker)

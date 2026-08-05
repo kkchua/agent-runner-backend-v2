@@ -131,7 +131,7 @@ class TestNormalFlow:
 
         assert result.run_status == "COMPLETED"
 
-    def test_running_to_awaiting_approval_on_review_gate(self, db_session: Session):
+    def test_running_to_WAITING_FOR_HUMAN_APPROVAL_on_review_gate(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
         run = _make_run(db_session, wf, run_status="RUNNING", current_step="review")
 
@@ -139,7 +139,7 @@ class TestNormalFlow:
             event_type=EventType.STEP_OUTCOME, outcome="approved",
         ), wf)
 
-        assert result.run_status == "AWAITING_APPROVAL"
+        assert result.run_status == "WAITING_FOR_HUMAN_APPROVAL"
         assert result.current_step_name == "review"
 
     def test_running_to_pending_on_auto_retryable_failure(self, db_session: Session):
@@ -201,7 +201,7 @@ class TestRefineLoop:
 
         review = WorkflowStepDefinition(
             workflow_definition_id=wf.id, step_name="review", step_order=1,
-            raw_config={"on_reject_refine": {"refine_step": "refine", "max_iterations": 2}},
+            raw_config={"on_reject_refine": {"step": "refine", "max_iterations": 2}},
         )
         workflow_repository.create_step_definition(db, review)
 
@@ -250,10 +250,10 @@ class TestRefineLoop:
 # ===========================================================================
 
 class TestHumanActions:
-    def test_approve_from_awaiting_approval(self, db_session: Session):
+    def test_approve_from_WAITING_FOR_HUMAN_APPROVAL(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
         run = _make_run(
-            db_session, wf, run_status="AWAITING_APPROVAL",
+            db_session, wf, run_status="WAITING_FOR_HUMAN_APPROVAL",
             current_step="review", action_requested="APPROVE",
         )
 
@@ -265,10 +265,10 @@ class TestHumanActions:
         assert result.current_step_name == "complete"
         assert result.clear_action is True
 
-    def test_reject_from_awaiting_approval(self, db_session: Session):
+    def test_reject_from_WAITING_FOR_HUMAN_APPROVAL(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
         run = _make_run(
-            db_session, wf, run_status="AWAITING_APPROVAL",
+            db_session, wf, run_status="WAITING_FOR_HUMAN_APPROVAL",
             current_step="review", action_requested="REJECT",
         )
 
@@ -310,15 +310,16 @@ class TestHumanActions:
         assert result.current_step_name == "generate"
         assert result.clear_action is True
 
-    def test_cancel_from_awaiting_approval(self, db_session: Session):
+    def test_cancel_from_WAITING_FOR_HUMAN_APPROVAL(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
-        run = _make_run(db_session, wf, run_status="AWAITING_APPROVAL")
+        run = _make_run(db_session, wf, run_status="WAITING_FOR_HUMAN_APPROVAL")
 
         result = transition(db_session, run, TransitionEvent(
             event_type=EventType.ACTION_REQUESTED, action="CANCEL",
         ), wf)
 
-        assert result.run_status == "FAILED"
+        assert result.run_status == "CANCELLED"
+        assert result.cancel_requested == "graceful"
 
 
 # ===========================================================================
@@ -326,7 +327,7 @@ class TestHumanActions:
 # ===========================================================================
 
 class TestValidation:
-    def test_reject_approve_when_not_awaiting_approval(self, db_session: Session):
+    def test_reject_approve_when_not_WAITING_FOR_HUMAN_APPROVAL(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
         run = _make_run(db_session, wf, run_status="RUNNING")
 
@@ -340,7 +341,7 @@ class TestValidation:
     def test_reject_action_when_another_action_pending(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
         run = _make_run(
-            db_session, wf, run_status="AWAITING_APPROVAL",
+            db_session, wf, run_status="WAITING_FOR_HUMAN_APPROVAL",
             action_requested="APPROVE",
         )
 
@@ -417,7 +418,7 @@ class TestInvariants:
     def test_single_action_enforced(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
         run = _make_run(
-            db_session, wf, run_status="AWAITING_APPROVAL",
+            db_session, wf, run_status="WAITING_FOR_HUMAN_APPROVAL",
             action_requested="APPROVE",
         )
 
@@ -449,13 +450,13 @@ class TestInvariants:
 
     def test_action_requested_preserves_status(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
-        run = _make_run(db_session, wf, run_status="AWAITING_APPROVAL")
+        run = _make_run(db_session, wf, run_status="WAITING_FOR_HUMAN_APPROVAL")
 
         result = transition(db_session, run, TransitionEvent(
             event_type=EventType.ACTION_REQUESTED, action="APPROVE",
         ), wf)
 
-        assert result.run_status == "AWAITING_APPROVAL"
+        assert result.run_status == "WAITING_FOR_HUMAN_APPROVAL"
         assert result.action_requested == "APPROVE"
 
 
@@ -464,14 +465,14 @@ class TestInvariants:
 # ===========================================================================
 
 class TestValidActions:
-    def test_submitted_only_cancel(self, db_session: Session):
+    def test_submitted_cancel_actions(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
         run = _make_run(db_session, wf, run_status="SUBMITTED")
-        assert get_valid_actions(run) == ["CANCEL"]
+        assert get_valid_actions(run) == ["CANCEL", "FORCE_CANCEL"]
 
-    def test_awaiting_approval_actions(self, db_session: Session):
+    def test_WAITING_FOR_HUMAN_APPROVAL_actions(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
-        run = _make_run(db_session, wf, run_status="AWAITING_APPROVAL")
+        run = _make_run(db_session, wf, run_status="WAITING_FOR_HUMAN_APPROVAL")
         actions = get_valid_actions(run)
         assert "APPROVE" in actions
         assert "REJECT" in actions

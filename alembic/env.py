@@ -17,7 +17,8 @@ if config.config_file_name is not None:
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 # Import all models so Base.metadata is populated
-from agent_runner_backend_v2.models import run, worker, workflow  # noqa: F401, E402
+from agent_runner_backend_v2.auth.models import APIKey  # noqa: F401, E402
+from agent_runner_backend_v2.models import host, repo, run, worker, workflow  # noqa: F401, E402
 
 target_metadata = Base.metadata
 

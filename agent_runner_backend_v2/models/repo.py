@@ -14,15 +14,19 @@ class RepoRegistry(Base):
     """A project repository registered for workflow execution."""
 
     __tablename__ = "repos"
+    __table_args__ = (
+        UniqueConstraint("name", "worker_uuid", name="uq_repo_name_worker"),
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    name = Column(String(120), nullable=False, unique=True, index=True)
+    name = Column(String(120), nullable=False, index=True)
     path = Column(Text, nullable=False)
-    worker_id = Column(String(80), ForeignKey("worker_registry.worker_id"), nullable=False, index=True)
+    worker_id = Column(String(80), nullable=False, index=True)
+    worker_uuid = Column(String(36), ForeignKey("worker_registry.id"), nullable=False, index=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
-    worker = relationship("WorkerRegistry", lazy="select")
+    worker = relationship("WorkerRegistry", lazy="select", foreign_keys=[worker_uuid])
     workflow_assignments = relationship(
         "RepoWorkflowAssignment",
         back_populates="repo",

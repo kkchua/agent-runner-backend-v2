@@ -1,0 +1,16 @@
+{
+  "schema_version": "v2",
+  "coder_result": {
+    "status": "REJECTED",
+    "remark": "Sync review rejected. Sync log has scan_policy 'exclude' instead of required 'include' (F-01). All other 48 staged documents pass governance metadata and ASCII checks. Inventory counts match actual repo (40 Python modules, 11 test files). Change impact report correctly separates created vs updated with no overlap.",
+    "artifacts": {
+      "REVIEW_FILE_SUGGESTED": "D:/MyProjectSpace/01_Workflows/agent-runner-backend-v2/docs/repo/codebase/runs/SDLC00CB-fvfhkqhj/sync_logs/SDLC00CB-fvfhkqhj-review.md"
+    },
+    "recorded_at": "2026-08-05T15:36:00+08:00",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0
+    }
+  }
+}

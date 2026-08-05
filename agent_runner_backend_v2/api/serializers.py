@@ -20,18 +20,35 @@ from agent_runner_backend_v2.services.state_machine import get_valid_actions
 def serialize_run(run: WorkflowRun, valid_actions: list[str] | None = None) -> RunResponse:
     """Serialize a WorkflowRun to a RunResponse."""
     wf_name = ""
+    wf_def_id = ""
     if run.workflow_definition:
         wf_name = run.workflow_definition.name
+        wf_def_id = run.workflow_definition.id
 
     return RunResponse(
         run_id=run.id,
         run_code=run.run_code,
+        workflow_definition_id=wf_def_id,
         workflow_name=wf_name,
         run_status=run.run_status,
         action_requested=run.action_requested,
+        action_feedback=run.action_feedback,
+        cancel_requested=run.cancel_requested,
         current_step=run.current_step_name,
         current_step_run_id=run.current_step_run_id,
+        target_worker_id=run.target_worker_id,
         worker_id=run.claimed_by_worker or run.target_worker_id,
+        worker_label=run.worker_label,
+        project_root=run.project_root,
+        workspace_path=run.workspace_path,
+        job_dir=run.job_dir,
+        input_payload=run.input_payload,
+        context_payload=run.context_payload,
+        error_message=run.error_message,
+        refine_iterations=run.refine_iterations,
+        submitted_at=run.submitted_at.isoformat() if run.submitted_at else None,
+        started_at=run.started_at.isoformat() if run.started_at else None,
+        completed_at=run.completed_at.isoformat() if run.completed_at else None,
         created_at=run.created_at.isoformat() if run.created_at else "",
         updated_at=run.updated_at.isoformat() if run.updated_at else "",
         valid_actions=valid_actions or get_valid_actions(run),
@@ -62,6 +79,8 @@ def serialize_worker(worker: WorkerRegistry) -> WorkerResponse:
         hostname=hostname,
         status=worker.status,
         worker_label=worker.worker_label,
+        is_enabled=worker.is_enabled,
+        capabilities=worker.capabilities or {},
         last_heartbeat=worker.last_heartbeat.isoformat() if worker.last_heartbeat else None,
         current_run_id=worker.current_run_id,
     )
@@ -105,6 +124,7 @@ def serialize_repo(repo: RepoRegistry) -> RepoResponse:
         name=repo.name,
         path=repo.path,
         worker_id=repo.worker_id,
+        worker_uuid=repo.worker_uuid,
         host_id=repo.worker.host_id if repo.worker else None,
         hostname=hostname,
         os_type=os_type,

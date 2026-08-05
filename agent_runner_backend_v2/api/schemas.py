@@ -20,12 +20,27 @@ class SubmitRunRequest(BaseModel):
 class RunResponse(BaseModel):
     run_id: str
     run_code: str
+    workflow_definition_id: str
     workflow_name: str
     run_status: str
     action_requested: str | None = None
+    action_feedback: str | None = None
+    cancel_requested: str | None = None
     current_step: str | None = None
     current_step_run_id: str | None = None
+    target_worker_id: str | None = None
     worker_id: str | None = None
+    worker_label: str | None = None
+    project_root: str | None = None
+    workspace_path: str | None = None
+    job_dir: str | None = None
+    input_payload: dict | None = None
+    context_payload: dict | None = None
+    error_message: str | None = None
+    refine_iterations: dict | None = None
+    submitted_at: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
     created_at: str
     updated_at: str
     valid_actions: list[str] = Field(default_factory=list)
@@ -33,11 +48,13 @@ class RunResponse(BaseModel):
 
 class RunListResponse(BaseModel):
     runs: list[RunResponse]
+    total: int = 0
 
 
 class ActionRequest(BaseModel):
     action: str
     feedback: str | None = None
+    force: bool = False  # For CANCEL: True=force cancel (kill children immediately)
 
 
 class ResetStepRequest(BaseModel):
@@ -67,6 +84,15 @@ class HeartbeatRequest(BaseModel):
 
 class HeartbeatResponse(BaseModel):
     commands: list[str] = Field(default_factory=list)
+    detail: dict | None = None
+
+
+class UpdateWorkerRequest(BaseModel):
+    worker_label: str | None = None
+    status: str | None = None
+    is_enabled: bool | None = None
+    capabilities: dict | None = None
+    host_id: str | None = None
 
 
 class WorkerResponse(BaseModel):
@@ -75,6 +101,8 @@ class WorkerResponse(BaseModel):
     hostname: str | None = None
     status: str
     worker_label: str
+    is_enabled: bool = True
+    capabilities: dict = Field(default_factory=dict)
     last_heartbeat: str | None = None
     current_run_id: str | None = None
 
@@ -103,6 +131,7 @@ class OutcomeRequest(BaseModel):
     review: dict | None = None
     error_message: str | None = None
     usage_summary: dict | None = None
+    job_dir: str | None = None  # Full path to local job folder (set on first outcome)
 
 
 class OutcomeResponse(BaseModel):
@@ -139,6 +168,12 @@ class CreateHostRequest(BaseModel):
     hostname: str
     ip_address: str | None = None
     os_type: str = "windows"
+
+
+class UpdateHostRequest(BaseModel):
+    hostname: str | None = None
+    ip_address: str | None = None
+    os_type: str | None = None
 
 
 class HostResponse(BaseModel):
@@ -183,6 +218,7 @@ class RepoResponse(BaseModel):
     name: str
     path: str
     worker_id: str
+    worker_uuid: str | None = None
     host_id: str | None = None
     hostname: str | None = None
     os_type: str | None = None

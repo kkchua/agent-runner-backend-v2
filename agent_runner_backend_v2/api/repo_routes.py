@@ -12,6 +12,8 @@ from agent_runner_backend_v2.api.schemas import (
     UpdateRepoRequest,
 )
 from agent_runner_backend_v2.api.serializers import serialize_repo, serialize_repo_workflow
+from agent_runner_backend_v2.auth.rbac import require_jwt_or_api_key
+from agent_runner_backend_v2.auth.supabase_auth import UserContext
 from agent_runner_backend_v2.database import get_db
 from agent_runner_backend_v2.services import repo_service
 
@@ -19,14 +21,21 @@ router = APIRouter(prefix="/api/repos", tags=["repos"])
 
 
 @router.get("")
-def list_repos(db: Session = Depends(get_db)) -> list[RepoResponse]:
+def list_repos(
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
+) -> list[RepoResponse]:
     """List all registered repos with their workflow assignments."""
     repos = repo_service.list_repos(db)
     return [serialize_repo(r) for r in repos]
 
 
 @router.post("", status_code=201)
-def create_repo(req: CreateRepoRequest, db: Session = Depends(get_db)) -> RepoResponse:
+def create_repo(
+    req: CreateRepoRequest,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
+) -> RepoResponse:
     """Register a new repo."""
     repo = repo_service.create_repo(
         db, name=req.name, path=req.path, worker_id=req.worker_id,
@@ -35,7 +44,11 @@ def create_repo(req: CreateRepoRequest, db: Session = Depends(get_db)) -> RepoRe
 
 
 @router.get("/{repo_id}")
-def get_repo(repo_id: str, db: Session = Depends(get_db)) -> RepoResponse:
+def get_repo(
+    repo_id: str,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
+) -> RepoResponse:
     """Get repo detail with workflow assignments."""
     repo = repo_service.get_repo(db, repo_id)
     return serialize_repo(repo)
@@ -43,7 +56,10 @@ def get_repo(repo_id: str, db: Session = Depends(get_db)) -> RepoResponse:
 
 @router.put("/{repo_id}")
 def update_repo(
-    repo_id: str, req: UpdateRepoRequest, db: Session = Depends(get_db),
+    repo_id: str,
+    req: UpdateRepoRequest,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
 ) -> RepoResponse:
     """Update a repo's fields."""
     updates = req.model_dump(exclude_unset=True)
@@ -52,7 +68,11 @@ def update_repo(
 
 
 @router.delete("/{repo_id}")
-def delete_repo(repo_id: str, db: Session = Depends(get_db)) -> dict:
+def delete_repo(
+    repo_id: str,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
+) -> dict:
     """Delete a repo and its workflow assignments."""
     repo_service.delete_repo(db, repo_id)
     return {"status": "ok", "message": f"Repo {repo_id} deleted"}
@@ -60,7 +80,9 @@ def delete_repo(repo_id: str, db: Session = Depends(get_db)) -> dict:
 
 @router.get("/{repo_id}/workflows")
 def list_repo_workflows(
-    repo_id: str, db: Session = Depends(get_db),
+    repo_id: str,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
 ) -> list[RepoWorkflowResponse]:
     """List workflow assignments for a repo."""
     assignments = repo_service.list_repo_workflows(db, repo_id)
@@ -69,7 +91,10 @@ def list_repo_workflows(
 
 @router.post("/{repo_id}/workflows", status_code=201)
 def assign_workflow(
-    repo_id: str, req: AssignWorkflowRequest, db: Session = Depends(get_db),
+    repo_id: str,
+    req: AssignWorkflowRequest,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
 ) -> RepoWorkflowResponse:
     """Assign a workflow to a repo."""
     assignment = repo_service.assign_workflow(
@@ -83,7 +108,10 @@ def assign_workflow(
 
 @router.delete("/{repo_id}/workflows/{workflow_name}")
 def unassign_workflow(
-    repo_id: str, workflow_name: str, db: Session = Depends(get_db),
+    repo_id: str,
+    workflow_name: str,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
 ) -> dict:
     """Remove a workflow assignment from a repo."""
     repo_service.unassign_workflow(db, repo_id=repo_id, workflow_name=workflow_name)

@@ -20,6 +20,32 @@ class Settings(BaseSettings):
     WORKER_HEARTBEAT_INTERVAL: int = 20
     WORKER_TIMEOUT: int = 60
 
+    # Supabase Auth
+    SUPABASE_URL: str = ""
+    SUPABASE_ANON_KEY: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
+    SUPABASE_JWT_SECRET: str = ""
+
+    # CORS
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+        "http://192.168.0.200:5173",
+        "http://192.168.0.200:3000",
+        "http://192.168.0.201:5173",
+        "http://192.168.0.201:3000",
+        "http://192.168.0.202:5173",
+        "http://192.168.0.202:3000",
+        "http://192.168.0.203:5173",
+        "http://192.168.0.203:3000",
+        "http://192.168.0.204:5173",
+        "http://192.168.0.204:3000",
+        "http://192.168.0.205:5173",
+        "http://192.168.0.205:3000",
+    ]
+
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[1] / ".env",
         env_file_encoding="utf-8",
@@ -31,6 +57,11 @@ class Settings(BaseSettings):
     def is_development(self) -> bool:
         """Return True if running in development mode."""
         return self.APP_ENV == "development"
+
+    @property
+    def auth_enabled(self) -> bool:
+        """Return True if Supabase auth is configured."""
+        return bool(self.SUPABASE_URL and self.SUPABASE_JWT_SECRET)
 
 
 settings = Settings()

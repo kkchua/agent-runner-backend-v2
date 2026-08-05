@@ -16,6 +16,10 @@ dependencies = [
     "alembic>=1.13",
     "psycopg2-binary>=2.9",
     "structlog>=23.0",
+    "PyJWT>=2.8",
+    "cryptography>=41.0",
+    "bcrypt>=4.0",
+    "python-multipart>=0.0.6",
 ]
 
 [tool.setuptools.packages.find]
