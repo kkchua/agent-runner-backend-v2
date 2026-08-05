@@ -80,7 +80,7 @@ def list_runs(
 def get_run(
     run_id: str,
     db: Session = Depends(get_db),
-    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
+    user: UserContext = Depends(require_jwt_or_api_key("admin", "operator", "service-account")),
 ) -> RunResponse:
     """Get run detail with valid actions."""
     detail = run_service.get_run_detail(db, run_id)
