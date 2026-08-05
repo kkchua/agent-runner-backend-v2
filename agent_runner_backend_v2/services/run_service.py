@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from agent_runner_backend_v2.database import run_repository, workflow_repository
+from agent_runner_backend_v2.database import run_repository, worker_repository, workflow_repository
 from agent_runner_backend_v2.models.run import (
     WorkflowArtifact,
     WorkflowEvent,
@@ -106,6 +106,14 @@ def claim_work(
     1. Action-pending runs (PROCESS_ACTION)
     2. Claimable runs (EXECUTE_STEP)
     """
+    # Check worker's max_parallel limit
+    worker = worker_repository.get_worker(db, worker_id)
+    if worker:
+        max_parallel = (worker.capabilities or {}).get("max_parallel", 1)
+        active_runs = run_repository.count_active_runs(db, worker_id=worker_id)
+        if active_runs >= max_parallel:
+            return None
+
     # Check for action-pending runs first (USER_* statuses)
     action_runs = run_repository.list_action_pending_runs(db, worker_id=worker_id)
     if action_runs:

@@ -111,6 +111,18 @@ def list_force_cancelled_runs(db: Session, *, worker_id: str) -> list[WorkflowRu
     )
 
 
+def count_active_runs(db: Session, *, worker_id: str) -> int:
+    """Count runs currently being executed by a worker (RUNNING status)."""
+    return (
+        db.query(WorkflowRun)
+        .filter(
+            WorkflowRun.claimed_by_worker == worker_id,
+            WorkflowRun.run_status == "RUNNING",
+        )
+        .count()
+    )
+
+
 def create_run(db: Session, run: WorkflowRun) -> WorkflowRun:
     """Insert a new workflow run."""
     db.add(run)
