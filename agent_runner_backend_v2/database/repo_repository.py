@@ -11,9 +11,13 @@ def get_repo(db: Session, repo_id: str) -> RepoRegistry | None:
     return db.query(RepoRegistry).filter(RepoRegistry.id == repo_id).first()
 
 
-def get_repo_by_name(db: Session, name: str) -> RepoRegistry | None:
-    """Fetch a repo by its unique name."""
-    return db.query(RepoRegistry).filter(RepoRegistry.name == name).first()
+def get_repo_by_name(db: Session, name: str, worker_uuid: str) -> RepoRegistry | None:
+    """Fetch a repo by name scoped to a specific worker."""
+    return (
+        db.query(RepoRegistry)
+        .filter(RepoRegistry.name == name, RepoRegistry.worker_uuid == worker_uuid)
+        .first()
+    )
 
 
 def list_repos(db: Session) -> list[RepoRegistry]:

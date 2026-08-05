@@ -20,13 +20,27 @@ class SubmitRunRequest(BaseModel):
 class RunResponse(BaseModel):
     run_id: str
     run_code: str
+    workflow_definition_id: str
     workflow_name: str
     run_status: str
     action_requested: str | None = None
+    action_feedback: str | None = None
+    cancel_requested: str | None = None
     current_step: str | None = None
     current_step_run_id: str | None = None
+    target_worker_id: str | None = None
     worker_id: str | None = None
+    worker_label: str | None = None
+    project_root: str | None = None
+    workspace_path: str | None = None
     job_dir: str | None = None
+    input_payload: dict | None = None
+    context_payload: dict | None = None
+    error_message: str | None = None
+    refine_iterations: dict | None = None
+    submitted_at: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
     created_at: str
     updated_at: str
     valid_actions: list[str] = Field(default_factory=list)

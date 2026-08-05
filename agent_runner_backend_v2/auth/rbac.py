@@ -107,11 +107,18 @@ def require_jwt_or_api_key(*allowed_roles: str) -> Callable:
         user: UserContext | None = None
 
         if bearer is not None:
-            user = _user_from_bearer(bearer)
+            try:
+                user = _user_from_bearer(bearer)
+            except HTTPException as exc:
+                import structlog
+                structlog.get_logger().warning("auth_bearer_failed", status=exc.status_code, detail=exc.detail)
+                raise
         elif api_key is not None:
             user = _user_from_api_key(api_key)
 
         if user is None:
+            import structlog
+            structlog.get_logger().warning("auth_no_credentials", has_bearer=bearer is not None, has_api_key=api_key is not None)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not authenticated. Provide Bearer token or X-API-Key header.",

@@ -24,32 +24,42 @@ def preload_jwks() -> None:
     """Fetch and cache Supabase JWKS public keys at startup.
 
     This avoids blocking the async event loop during request handling.
+    Retries up to 3 times on failure.
     """
     global _public_keys
     jwks_url = f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json"
-    try:
-        resp = httpx.get(
-            jwks_url,
-            headers={"apikey": settings.SUPABASE_ANON_KEY},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        jwks = resp.json()
 
-        for key_data in jwks.get("keys", []):
-            kid = key_data.get("kid")
-            if kid:
-                # Convert JWK to a public key object using PyJWT
-                jwk = PyJWK(key_data)
-                _public_keys[kid] = jwk.key
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            resp = httpx.get(
+                jwks_url,
+                headers={"apikey": settings.SUPABASE_ANON_KEY},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            jwks = resp.json()
 
-        logger.info("jwks_preloaded", num_keys=len(_public_keys))
-    except Exception as exc:
-        logger.error("jwks_preload_failed", error=str(exc))
+            for key_data in jwks.get("keys", []):
+                kid = key_data.get("kid")
+                if kid:
+                    jwk = PyJWK(key_data)
+                    _public_keys[kid] = jwk.key
+
+            logger.info("jwks_preloaded", num_keys=len(_public_keys), attempt=attempt)
+            return
+        except Exception as exc:
+            last_error = exc
+            logger.warning("jwks_preload_attempt_failed", attempt=attempt, error=str(exc))
+            if attempt < 3:
+                import time
+                time.sleep(2 * attempt)
+
+    logger.error("jwks_preload_failed_all_retries", error=str(last_error))
 
 
 def decode_supabase_token(token: str) -> dict:
-    """Decode and validate a Supabase JWT token using cached public keys."""
+    """Decode and validate a Supabase JWT token using cached public keys or JWT secret fallback."""
     # Extract kid from token header
     try:
         header = jwt.get_unverified_header(token)
@@ -60,40 +70,55 @@ def decode_supabase_token(token: str) -> dict:
         )
 
     kid = header.get("kid")
-    if not kid:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing 'kid' header",
-        )
+    alg = header.get("alg", "ES256")
 
-    public_key = _public_keys.get(kid)
-    if not public_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Unknown key ID: {kid}. Restart server to refresh keys.",
-        )
+    # Try JWKS public key first (ES256)
+    if kid and alg == "ES256":
+        # Lazy-load JWKS keys if not cached yet
+        if not _public_keys:
+            logger.info("jwks_lazy_reload_triggered")
+            preload_jwks()
 
-    try:
-        payload = jwt.decode(
-            token,
-            public_key,
-            algorithms=["ES256"],
-            options={
-                "verify_aud": False,
-                "leeway": 30,
-            },
-        )
-        return payload
-    except jwt.ExpiredSignatureError:
+        public_key = _public_keys.get(kid)
+        if public_key:
+            try:
+                payload = jwt.decode(
+                    token,
+                    public_key,
+                    algorithms=["ES256"],
+                    options={"verify_aud": False, "verify_iat": False, "leeway": 300},
+                )
+                return payload
+            except jwt.ExpiredSignatureError:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
+            except jwt.InvalidTokenError as exc:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {exc}")
+
+    # Fallback: HS256 with SUPABASE_JWT_SECRET
+    if settings.SUPABASE_JWT_SECRET:
+        try:
+            payload = jwt.decode(
+                token,
+                settings.SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False, "verify_iat": False, "leeway": 300},
+            )
+            return payload
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
+        except jwt.InvalidTokenError:
+            pass  # Fall through to error below
+
+    # No validation method succeeded
+    if kid and not _public_keys:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired",
+            detail=f"JWKS keys not loaded (key ID: {kid}). Restart server to refresh keys.",
         )
-    except jwt.InvalidTokenError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {exc}",
-        )
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Unable to validate token with available keys.",
+    )
 
 
 def _extract_role(payload: dict) -> str:
@@ -118,11 +143,19 @@ def get_current_user(
 ) -> UserContext:
     """FastAPI dependency: extract user from Bearer JWT."""
     if credentials is None:
+        logger.warning("auth_no_bearer_token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
         )
-    payload = decode_supabase_token(credentials.credentials)
+    token = credentials.credentials
+    # Diagnostic: log token header (without exposing the full token)
+    try:
+        header = jwt.get_unverified_header(token)
+        logger.info("auth_token_header", kid=header.get("kid"), alg=header.get("alg"), cached_kids=list(_public_keys.keys()))
+    except Exception:
+        pass
+    payload = decode_supabase_token(token)
     user_id = payload.get("sub", "")
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token: missing user ID")
