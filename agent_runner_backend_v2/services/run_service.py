@@ -58,12 +58,23 @@ def submit_run(
 
     Creates the run in SUBMITTED status with the workflow's init step.
     If start_step is provided, overrides the init step.
+
+    For file-type inputs (keys ending with _FILE or _DOC), bare filenames
+    are resolved to full paths using init_input_dirs from the workflow
+    definition: project_root / directory / filename.
     """
     workflow = workflow_repository.get_workflow_by_name(db, workflow_name)
     if not workflow:
         raise HTTPException(status_code=404, detail=f"Workflow '{workflow_name}' not found")
     if not workflow.is_active:
         raise HTTPException(status_code=400, detail=f"Workflow '{workflow_name}' is not active")
+
+    # Resolve bare filenames in input_payload to full artifact paths
+    resolved_payload = _resolve_input_paths(
+        input_payload or {},
+        workflow=workflow,
+        project_root=project_root,
+    )
 
     run_code = _generate_run_code(db, workflow.job_prefix)
     init_step = start_step or workflow.init_step
@@ -77,7 +88,7 @@ def submit_run(
         worker_label="live",
         project_root=project_root,
         workspace_path=workspace_path,
-        input_payload=input_payload or {},
+        input_payload=resolved_payload,
     )
     run_repository.create_run(db, run)
 
@@ -90,6 +101,49 @@ def submit_run(
     run_repository.create_event(db, event)
 
     return run
+
+
+def _resolve_input_paths(
+    input_payload: dict,
+    *,
+    workflow: WorkflowDefinition,
+    project_root: str | None,
+) -> dict:
+    """Resolve bare filenames in input_payload to full artifact paths.
+
+    For keys ending with _FILE or _DOC, if the value is a bare filename
+    (no path separators), it is resolved using:
+        project_root / init_input_dirs[key] / filename
+
+    Other keys or values with path separators are passed through as-is.
+    """
+    import os
+
+    if not input_payload or not project_root:
+        return dict(input_payload)
+
+    init_input_dirs = (workflow.raw_definition or {}).get("init_input_dirs", {})
+    if not init_input_dirs:
+        return dict(input_payload)
+
+    resolved = {}
+    for key, value in input_payload.items():
+        if not isinstance(value, str) or not value:
+            resolved[key] = value
+            continue
+
+        # Check if this is a file-type key with a bare filename
+        is_file_key = key.endswith("_FILE") or key.endswith("_DOC")
+        is_bare = os.sep not in value and "/" not in value
+
+        if is_file_key and is_bare and key in init_input_dirs:
+            directory = init_input_dirs[key]
+            full_path = os.path.join(project_root, directory, value)
+            resolved[key] = full_path
+        else:
+            resolved[key] = value
+
+    return resolved
 
 
 def claim_work(

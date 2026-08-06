@@ -89,6 +89,16 @@ def serialize_worker(worker: WorkerRegistry) -> WorkerResponse:
 def serialize_workflow(wf: WorkflowDefinition) -> WorkflowResponse:
     """Serialize a WorkflowDefinition to a WorkflowResponse."""
     step_names = [s.step_name for s in sorted(wf.steps, key=lambda s: s.step_order)]
+
+    # Extract init step's required input artifact keys from raw_definition
+    init_input_keys: list[str] = []
+    if wf.init_step and wf.raw_definition:
+        steps_config = wf.raw_definition.get("steps", {})
+        init_step_cfg = steps_config.get(wf.init_step, {})
+        # Try nested artifacts first, then top-level (bundle flattens them)
+        artifacts_cfg = init_step_cfg.get("artifacts") or init_step_cfg
+        init_input_keys = list(artifacts_cfg.get("required_inputs", []))
+
     return WorkflowResponse(
         workflow_name=wf.name,
         job_prefix=wf.job_prefix,
@@ -96,6 +106,7 @@ def serialize_workflow(wf: WorkflowDefinition) -> WorkflowResponse:
         is_active=wf.is_active,
         step_count=len(wf.steps),
         steps=step_names,
+        init_input_keys=init_input_keys,
     )
 
 

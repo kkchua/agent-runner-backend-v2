@@ -1,0 +1,16 @@
+{
+  "schema_version": "v2",
+  "coder_result": {
+    "status": "REJECTED",
+    "remark": "Reviewed all 21 scaffold files (13 templates + 8 agent contracts). All files present, structurally consistent, cross-references valid, ASCII-only compliant. REJECTED due to 1 Critical governance violation: 01_DRAFT_INIT_template.md uses managed_by: \"human-authored\" (invalid value per METADATA_CONTRACT.md -- should be \"human-managed\"). Also found 1 Major inconsistency: iteration budget says 3 in WORKFLOW_SOP but 2 in DELIVERY_STATUS_RULES. Plus 1 Minor: lifecycle_status \"template\" extension not explicitly documented as Layer 3 extension.",
+    "artifacts": {
+      "REVIEW_FILE_SUGGESTED": "D:/MyProjectSpace/01_Workflows/agent-runner-backend-v2/docs/system/00_governance/platform/agent_runner/sdlc/runs/SDLC00SCF-rn8qq5el/SDLC00SCF-rn8qq5el-sdlc-scaffold-review.md"
+    },
+    "recorded_at": "2026-08-06T15:32:00+08:00",
+    "usage": {
+      "input_tokens": 52000,
+      "output_tokens": 8500,
+      "total_tokens": 60500
+    }
+  }
+}

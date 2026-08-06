@@ -60,7 +60,7 @@ def list_runs(
     if status == "active":
         statuses = ["USER_SUBMITTED", "USER_APPROVED", "USER_REJECTED", "USER_RESUMED", "USER_RETRIED",
                      "PENDING", "RUNNING", "WAITING_FOR_HUMAN_APPROVAL",
-                     "AWAITING_INTERVENTION", "AWAITING_MAXRETRIED"]
+                     "AWAITING_INTERVENTION"]
     elif status == "terminal":
         statuses = ["COMPLETED", "FAILED", "CANCELLED", "USER_CANCELLED"]
 
