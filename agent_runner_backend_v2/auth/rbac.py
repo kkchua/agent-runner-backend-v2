@@ -9,6 +9,7 @@ from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBea
 from agent_runner_backend_v2.auth.supabase_auth import (
     UserContext,
     _extract_role,
+    _resolve_role,
     decode_supabase_token,
 )
 
@@ -25,10 +26,13 @@ def _user_from_bearer(bearer: HTTPAuthorizationCredentials) -> UserContext:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token: missing user ID",
         )
+    email = payload.get("email", "")
+    jwt_role = _extract_role(payload)
+    resolved_role = _resolve_role(user_id, email, jwt_role)
     return UserContext(
         user_id=user_id,
-        email=payload.get("email", ""),
-        role=_extract_role(payload),
+        email=email,
+        role=resolved_role,
         is_service_account=False,
         metadata=payload.get("user_metadata", {}),
     )

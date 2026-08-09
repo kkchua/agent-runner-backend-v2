@@ -132,10 +132,15 @@ def _resolve_input_paths(
             resolved[key] = value
             continue
 
+        if key == "WORKFLOW_SPEC_FILE":
+            resolved[key] = value
+            continue
+        
         # Check if this is a file-type key with a bare filename
         is_file_key = key.endswith("_FILE") or key.endswith("_DOC")
+        
         is_bare = os.sep not in value and "/" not in value
-
+        
         if is_file_key and is_bare and key in init_input_dirs:
             directory = init_input_dirs[key]
             full_path = os.path.join(project_root, directory, value)

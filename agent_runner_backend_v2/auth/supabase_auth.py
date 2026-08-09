@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWK
 
 from agent_runner_backend_v2.config import settings
+from agent_runner_backend_v2.database import SessionLocal
 
 logger = structlog.get_logger()
 
@@ -122,9 +123,29 @@ def decode_supabase_token(token: str) -> dict:
 
 
 def _extract_role(payload: dict) -> str:
-    """Extract the user role from JWT payload metadata."""
+    """Extract the user role from JWT payload metadata (fallback when DB is unavailable)."""
     user_metadata = payload.get("user_metadata", {})
     return user_metadata.get("role", "viewer")
+
+
+def _resolve_role(user_id: str, email: str, jwt_role: str) -> str:
+    """Resolve the user's role from the user_roles DB table.
+
+    Auto-provisions the user with default role 'viewer' if not found.
+    Falls back to JWT metadata role if the DB lookup fails entirely.
+    """
+    from agent_runner_backend_v2.database.user_role_repository import get_or_create_user
+
+    db = SessionLocal()
+    try:
+        user = get_or_create_user(db, user_id, email)
+        db.commit()
+        return user.role
+    except Exception as exc:
+        logger.warning("user_role_db_lookup_failed", user_id=user_id, error=str(exc))
+        return jwt_role
+    finally:
+        db.close()
 
 
 @dataclass
@@ -159,9 +180,12 @@ def get_current_user(
     user_id = payload.get("sub", "")
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token: missing user ID")
+    email = payload.get("email", "")
+    jwt_role = _extract_role(payload)
+    resolved_role = _resolve_role(user_id, email, jwt_role)
     return UserContext(
         user_id=user_id,
-        email=payload.get("email", ""),
-        role=_extract_role(payload),
+        email=email,
+        role=resolved_role,
         metadata=payload.get("user_metadata", {}),
     )

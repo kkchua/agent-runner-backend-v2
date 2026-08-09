@@ -17,6 +17,15 @@ from agent_runner_backend_v2.database.api_key_repository import (
     list_api_keys,
     revoke_api_key,
 )
+from agent_runner_backend_v2.database.user_role_repository import (
+    delete_user,
+    list_users,
+    update_user_role,
+)
+from agent_runner_backend_v2.database.user_worker_repository import (
+    get_user_worker_ids,
+    set_user_workers,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -73,6 +82,29 @@ class APIKeyInfo(BaseModel):
     expires_at: datetime | None
     created_at: datetime
     last_used_at: datetime | None
+
+
+class UserRoleResponse(BaseModel):
+    """User role info for listing."""
+
+    user_id: str
+    email: str
+    role: str
+    is_system: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class SetUserWorkersRequest(BaseModel):
+    """Request body for setting a user's assigned workers."""
+
+    worker_ids: list[str]
+
+
+class UpdateUserRoleRequest(BaseModel):
+    """Request body for updating a user's role."""
+
+    role: str
 
 
 # ── Endpoints ──
@@ -165,3 +197,101 @@ def delete_key(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
 
     revoke_api_key(db, api_key)
+
+
+# ── User Management (admin only) ──
+
+
+VALID_ROLES = {"admin", "operator", "viewer"}
+
+
+@router.get("/users", response_model=list[UserRoleResponse])
+def list_all_users(
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
+    db: Session = Depends(get_db),
+):
+    """List all users with their roles. Admin only."""
+    users = list_users(db)
+    return [
+        UserRoleResponse(
+            user_id=u.user_id,
+            email=u.email,
+            role=u.role,
+            is_system=u.is_system,
+            created_at=u.created_at,
+            updated_at=u.updated_at,
+        )
+        for u in users
+    ]
+
+
+@router.put("/users/{user_id}/role", response_model=UserRoleResponse)
+def change_user_role(
+    user_id: str,
+    body: UpdateUserRoleRequest,
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
+    db: Session = Depends(get_db),
+):
+    """Update a user's role. Admin only."""
+    if body.role not in VALID_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid role '{body.role}'. Must be one of: {sorted(VALID_ROLES)}",
+        )
+    updated = update_user_role(db, user_id, body.role)
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    db.commit()
+    return UserRoleResponse(
+        user_id=updated.user_id,
+        email=updated.email,
+        role=updated.role,
+        is_system=updated.is_system,
+        created_at=updated.created_at,
+        updated_at=updated.updated_at,
+    )
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_user(
+    user_id: str,
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
+    db: Session = Depends(get_db),
+):
+    """Remove a user from the user_roles table. Admin only. Does not delete the Supabase auth account.
+
+    System accounts cannot be deleted.
+    """
+    from agent_runner_backend_v2.database.user_role_repository import is_system_user
+
+    if is_system_user(db, user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot delete a system account")
+    if not delete_user(db, user_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    db.commit()
+
+
+# ── User-Worker Assignment (admin only) ──
+
+
+@router.get("/users/{user_id}/workers", response_model=list[str])
+def get_user_workers(
+    user_id: str,
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
+    db: Session = Depends(get_db),
+):
+    """Get the list of worker IDs assigned to a user. Admin only."""
+    return get_user_worker_ids(db, user_id)
+
+
+@router.put("/users/{user_id}/workers")
+def set_user_workers_endpoint(
+    user_id: str,
+    body: SetUserWorkersRequest,
+    user: UserContext = Depends(require_jwt_or_api_key("admin")),
+    db: Session = Depends(get_db),
+):
+    """Set the list of worker IDs assigned to a user (replaces existing). Admin only."""
+    result = set_user_workers(db, user_id, body.worker_ids)
+    db.commit()
+    return {"user_id": user_id, "worker_ids": result}

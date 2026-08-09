@@ -16,6 +16,7 @@ from agent_runner_backend_v2.api.serializers import serialize_worker, serialize_
 from agent_runner_backend_v2.auth.rbac import require_jwt_or_api_key
 from agent_runner_backend_v2.auth.supabase_auth import UserContext
 from agent_runner_backend_v2.database import get_db, worker_repository
+from agent_runner_backend_v2.database.user_worker_repository import get_user_worker_ids
 from agent_runner_backend_v2.services import run_service, worker_service
 
 router = APIRouter(prefix="/api/workers", tags=["workers"])
@@ -172,6 +173,9 @@ def list_workers(
     db: Session = Depends(get_db),
     user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
 ) -> list[WorkerResponse]:
-    """List all registered workers."""
+    """List all registered workers. Admins see all; operators see only assigned workers."""
     workers = worker_repository.list_workers(db)
+    if user.role != "admin" and not user.is_service_account:
+        assigned_ids = set(get_user_worker_ids(db, user.user_id))
+        workers = [w for w in workers if w.worker_id in assigned_ids]
     return [serialize_worker(w) for w in workers]
