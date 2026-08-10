@@ -99,6 +99,11 @@ def serialize_workflow(wf: WorkflowDefinition) -> WorkflowResponse:
         artifacts_cfg = init_step_cfg.get("artifacts") or init_step_cfg
         init_input_keys = list(artifacts_cfg.get("required_inputs", []))
 
+    # Extract implementation declarations from raw_definition
+    implementations: list[dict] = []
+    if wf.raw_definition:
+        implementations = list(wf.raw_definition.get("implementation", []))
+
     return WorkflowResponse(
         workflow_name=wf.name,
         job_prefix=wf.job_prefix,
@@ -107,6 +112,7 @@ def serialize_workflow(wf: WorkflowDefinition) -> WorkflowResponse:
         step_count=len(wf.steps),
         steps=step_names,
         init_input_keys=init_input_keys,
+        implementations=implementations,
     )
 
 
