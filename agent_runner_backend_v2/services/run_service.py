@@ -132,7 +132,7 @@ def _resolve_input_paths(
             resolved[key] = value
             continue
 
-        if key == "WORKFLOW_SPEC_FILE":
+        if key == "BOOTSTRAP_SPEC_FILE" or key == "REQUIREMENT_DOC":
             resolved[key] = value
             continue
         
@@ -144,7 +144,7 @@ def _resolve_input_paths(
         if is_file_key and is_bare and key in init_input_dirs:
             directory = init_input_dirs[key]
             full_path = os.path.join(project_root, directory, value)
-            resolved[key] = full_path
+            resolved[key] = value
         else:
             resolved[key] = value
 
