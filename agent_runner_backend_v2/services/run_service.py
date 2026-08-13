@@ -5,7 +5,10 @@ all transitions. Never uses db.query() directly — goes through repositories.
 """
 from __future__ import annotations
 
+import structlog
 from datetime import datetime, timezone
+
+logger = structlog.get_logger(__name__)
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -25,6 +28,8 @@ from agent_runner_backend_v2.services.state_machine import (
     get_valid_actions,
     transition,
 )
+from agent_runner_backend_v2.qwenpaw_client import notify_telegram
+# notify_qwenpaw_agent disabled — QwenPaw Console notifications commented out
 
 
 def utcnow() -> datetime:
@@ -53,6 +58,8 @@ def submit_run(
     workspace_path: str | None = None,
     input_payload: dict | None = None,
     start_step: str | None = None,
+    implementation_name: str | None = None,
+    prompt_selections: dict | None = None,
 ) -> WorkflowRun:
     """Submit a new workflow run.
 
@@ -79,6 +86,18 @@ def submit_run(
     run_code = _generate_run_code(db, workflow.job_prefix)
     init_step = start_step or workflow.init_step
 
+    # Store BCS context in context_payload
+    context_payload = {}
+    if implementation_name:
+        context_payload["implementation_name"] = implementation_name
+    if prompt_selections:
+        context_payload["prompt_selections"] = prompt_selections
+
+    # --- [DEBUG] Log constructed context_payload ---
+    logger.info("service_submit_run_context", 
+                run_code=run_code, 
+                context_payload=context_payload)
+
     run = WorkflowRun(
         run_code=run_code,
         workflow_definition_id=workflow.id,
@@ -89,6 +108,7 @@ def submit_run(
         project_root=project_root,
         workspace_path=workspace_path,
         input_payload=resolved_payload,
+        context_payload=context_payload,
     )
     run_repository.create_run(db, run)
 
@@ -317,6 +337,9 @@ def report_outcome(
     if result.refine_iterations:
         run.refine_iterations = result.refine_iterations
 
+    # Send Telegram notification for user-relevant statuses only
+    _notify_on_status_change(run, result.run_status)
+
     # Create event
     evt = WorkflowEvent(
         workflow_run_id=run.id,
@@ -467,3 +490,116 @@ def _get_or_create_step_run(
     run.current_step_run_id = step_run.id
 
     return step_run
+
+
+def _notify_on_status_change(run: WorkflowRun, status: str) -> None:
+    """Send Telegram notification for user-relevant status changes only."""
+    import structlog
+    logger = structlog.get_logger(__name__)
+    logger.info("notify_check", status=status, run_code=run.run_code)
+
+    # Only notify on: completion, failure, waiting for approval, intervention, cancellation
+    NOTIFY_STATUSES = {
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED",
+        "WAITING_FOR_HUMAN_APPROVAL",
+        "AWAITING_INTERVENTION",
+    }
+    if status not in NOTIFY_STATUSES:
+        logger.info("notify_skip", status=status, reason="not in NOTIFY_STATUSES")
+        return
+
+    # Calculate duration
+    duration = "In progress"
+    if run.started_at:
+        from datetime import datetime
+        now = datetime.now()
+        delta = now - run.started_at
+        total_seconds = int(delta.total_seconds())
+        minutes, seconds = divmod(total_seconds, 60)
+        duration = f"{minutes}m {seconds}s"
+
+    # Status emoji
+    if status == "COMPLETED":
+        emoji = "✅"
+    elif status in ("FAILED", "CANCELLED"):
+        emoji = "❌"
+    else:
+        emoji = "⚠️"
+
+    # Build enriched message with [AGB Events] tag
+    lines = [
+        f"{emoji} *[AGB Events]*",
+        f"*Status:* {status}",
+        "",
+        "━━━ *Job Info* ━━━",
+        f"*Workflow:* {run.workflow_definition.name}",
+        f"*Job ID:* {run.run_code}",
+        f"*Worker:* {run.claimed_by_worker or run.target_worker_id or 'N/A'}",
+    ]
+
+    # Add timing info
+    if run.submitted_at:
+        lines.append(f"*Submitted:* {run.submitted_at.strftime('%Y-%m-%d %H:%M:%S')}")
+    if run.started_at:
+        lines.append(f"*Started:* {run.started_at.strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"*Duration:* {duration}")
+
+    # Add current step info
+    if run.current_step_name:
+        lines.append("")
+        lines.append("━━━ *Current Step* ━━━")
+        lines.append(f"*Step:* {run.current_step_name}")
+
+        # Get latest step run details if available
+        if run.step_runs:
+            latest_step = run.step_runs[-1]  # Last step by created_at
+            if latest_step.step_outcome:
+                lines.append(f"*Outcome:* {latest_step.step_outcome}")
+            if latest_step.coder:
+                lines.append(f"*Coder:* {latest_step.coder}")
+            if latest_step.duration_seconds:
+                step_mins, step_secs = divmod(latest_step.duration_seconds, 60)
+                lines.append(f"*Step Duration:* {step_mins}m {step_secs}s")
+
+    # Add action info for approval/intervention states
+    if status in ("WAITING_FOR_HUMAN_APPROVAL", "AWAITING_INTERVENTION"):
+        lines.append("")
+        lines.append("━━━ *Action Required* ━━━")
+        action = run.action_requested or "REVIEW"
+        lines.append(f"*Action:* {action}")
+        if run.action_feedback:
+            lines.append(f"*Feedback:* {run.action_feedback[:200]}")
+
+    # Add error message if present
+    if run.error_message:
+        lines.append("")
+        lines.append("━━━ *Error* ━━━")
+        lines.append(f"`{run.error_message[:300]}`")
+
+    # Add paths if available
+    paths = []
+    if run.project_root:
+        paths.append(f"*Project:* {run.project_root}")
+    if run.job_dir:
+        paths.append(f"*Job Dir:* {run.job_dir}")
+    if run.workspace_path:
+        paths.append(f"*Workspace:* {run.workspace_path}")
+
+    if paths:
+        lines.append("")
+        lines.append("━━━ *Paths* ━━━")
+        lines.extend(paths)
+
+    # Add refine iterations if any
+    if run.refine_iterations:
+        refine_info = ", ".join(f"{step}: {count}x" for step, count in run.refine_iterations.items())
+        if refine_info:
+            lines.append("")
+            lines.append(f"*Refine Iterations:* {refine_info}")
+
+    user_message = "\n".join(lines)
+    logger.info("notify_sending", status=status, run_code=run.run_code, message_length=len(user_message))
+    result = notify_telegram(user_message)
+    logger.info("notify_sent", status=status, run_code=run.run_code, telegram_result=result)

@@ -25,6 +25,11 @@ def serialize_run(run: WorkflowRun, valid_actions: list[str] | None = None) -> R
         wf_name = run.workflow_definition.name
         wf_def_id = run.workflow_definition.id
 
+    # Extract BCS fields from context_payload
+    ctx = run.context_payload or {}
+    impl_name = ctx.get("implementation_name")
+    prompt_sels = ctx.get("prompt_selections", {})
+
     return RunResponse(
         run_id=run.id,
         run_code=run.run_code,
@@ -43,7 +48,7 @@ def serialize_run(run: WorkflowRun, valid_actions: list[str] | None = None) -> R
         workspace_path=run.workspace_path,
         job_dir=run.job_dir,
         input_payload=run.input_payload,
-        context_payload=run.context_payload,
+        context_payload=ctx,
         error_message=run.error_message,
         refine_iterations=run.refine_iterations,
         submitted_at=run.submitted_at.isoformat() if run.submitted_at else None,
@@ -52,6 +57,8 @@ def serialize_run(run: WorkflowRun, valid_actions: list[str] | None = None) -> R
         created_at=run.created_at.isoformat() if run.created_at else "",
         updated_at=run.updated_at.isoformat() if run.updated_at else "",
         valid_actions=valid_actions or get_valid_actions(run),
+        implementation_name=impl_name,
+        prompt_selections=prompt_sels,
     )
 
 
@@ -100,9 +107,10 @@ def serialize_workflow(wf: WorkflowDefinition) -> WorkflowResponse:
         init_input_keys = list(artifacts_cfg.get("required_inputs", []))
 
     # Extract implementation declarations from raw_definition
+    # BCS: Look for 'implementations' (plural) as sent by the runner
     implementations: list[dict] = []
     if wf.raw_definition:
-        implementations = list(wf.raw_definition.get("implementation", []))
+        implementations = list(wf.raw_definition.get("implementations", []))
 
     return WorkflowResponse(
         workflow_name=wf.name,

@@ -15,6 +15,9 @@ class SubmitRunRequest(BaseModel):
     workspace_path: str | None = None
     input_payload: dict = Field(default_factory=dict)
     start_step: str | None = None
+    # Base Composition Standard (BCS) fields
+    implementation_name: str | None = None
+    prompt_selections: dict = Field(default_factory=dict)
 
 
 class RunResponse(BaseModel):
@@ -44,6 +47,9 @@ class RunResponse(BaseModel):
     created_at: str
     updated_at: str
     valid_actions: list[str] = Field(default_factory=list)
+    # BCS fields (extracted from context_payload for convenience)
+    implementation_name: str | None = None
+    prompt_selections: dict = Field(default_factory=dict)
 
 
 class RunListResponse(BaseModel):

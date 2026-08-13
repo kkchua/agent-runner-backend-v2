@@ -1,8 +1,11 @@
 """Worker management API routes."""
 from __future__ import annotations
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+logger = structlog.get_logger(__name__)
 
 from agent_runner_backend_v2.api.schemas import (
     ClaimResponse,
@@ -105,7 +108,17 @@ def claim_work(
         "workflow_name": run.workflow_definition.name if run.workflow_definition else "",
         "project_root": run.project_root,
         "job_dir": run.job_dir,
+        # BCS context fields (Canonical Keys)
+        "implementation_name": run.context_payload.get("implementation_name"),
+        "prompt_selections": run.context_payload.get("prompt_selections", {}),
     }
+    
+    # BCS Section 11.6: Log claim response payload
+    logger.info("api_claim_response_sent", 
+                worker_id=worker_id,
+                run_code=run.run_code,
+                implementation_name=run_data.get("implementation_name"))
+    
     step_data = {
         "step_run_id": step_run.id,
         "step_name": step_run.step_name,

@@ -12,6 +12,7 @@ from agent_runner_backend_v2.auth.supabase_auth import (
     _resolve_role,
     decode_supabase_token,
 )
+from agent_runner_backend_v2.config import settings
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 _api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -108,6 +109,16 @@ def require_jwt_or_api_key(*allowed_roles: str) -> Callable:
         bearer: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
         api_key: str | None = Depends(_api_key_scheme),
     ) -> UserContext:
+        # Bypass auth for local development to simplify testing
+        if settings.APP_ENV == "development":
+            return UserContext(
+                user_id="dev-user",
+                email="dev@localhost",
+                role="admin",
+                is_service_account=True,
+                metadata={"dev_mode": True},
+            )
+
         user: UserContext | None = None
 
         if bearer is not None:
