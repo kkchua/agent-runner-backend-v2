@@ -53,7 +53,7 @@ Add Supabase-based SSO authentication to agent-runner-backend-v2 with support fo
 
 ## Supabase Project
 
-- **URL:** `https://lkktrzvjzmjdfvhbkzor.supabase.co`
+- **URL:** `https://<YOUR_PROJECT>.supabase.co`
 - **Keys:** Legacy anon/service_role keys (JWT format `eyJ...`) — NOT the new `sb_publishable_...` format
 - **JWT Secret:** Configured in `.env`
 - **Data API:** Auto-expose disabled (security)
@@ -165,7 +165,7 @@ Add Supabase-based SSO authentication to agent-runner-backend-v2 with support fo
 
 **Railway env vars:**
 ```
-SUPABASE_URL=https://lkktrzvjzmjdfvhbkzor.supabase.co
+SUPABASE_URL=https://<YOUR_PROJECT>.supabase.co
 SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 SUPABASE_JWT_SECRET=...
@@ -275,7 +275,7 @@ WHERE email = 'user@example.com';
 
 ### Get JWT token (for testing)
 ```bash
-curl -X POST "https://lkktrzvjzmjdfvhbkzor.supabase.co/auth/v1/token?grant_type=password" \
+curl -X POST "https://<YOUR_PROJECT>.supabase.co/auth/v1/token?grant_type=password" \
   -H "apikey: <ANON_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"email": "user@example.com", "password": "password"}'
