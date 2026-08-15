@@ -28,8 +28,11 @@ from agent_runner_backend_v2.services.state_machine import (
     get_valid_actions,
     transition,
 )
-from agent_runner_backend_v2.qwenpaw_client import notify_telegram
-# notify_qwenpaw_agent disabled — QwenPaw Console notifications commented out
+
+from agent_runner_backend_v2.qwenpaw_client import (
+    notify_telegram,
+    notify_qwenpaw_agent
+)
 
 
 def utcnow() -> datetime:
@@ -337,9 +340,6 @@ def report_outcome(
     if result.refine_iterations:
         run.refine_iterations = result.refine_iterations
 
-    # Send Telegram notification for user-relevant statuses only
-    _notify_on_status_change(run, result.run_status)
-
     # Create event
     evt = WorkflowEvent(
         workflow_run_id=run.id,
@@ -492,8 +492,104 @@ def _get_or_create_step_run(
     return step_run
 
 
+def _notify_step_outcome(
+    run: WorkflowRun,
+    step_name: str,
+    outcome: str,
+    failure_class: str | None = None,
+    error_message: str | None = None,
+    usage_summary: dict | None = None,
+    artifacts: dict | None = None,
+    next_status: str | None = None,
+) -> None:
+    """Send QwenPaw + Telegram notification for every step outcome.
+
+    Mirrors the Pushover/Telegram pattern: whenever a step produces an
+    outcome (approved / rejected / failed), notify the user immediately
+    via all configured channels, regardless of the overall run status.
+    """
+    import structlog
+    logger = structlog.get_logger(__name__)
+    logger.info("step_notify_check", step=step_name, outcome=outcome,
+                 run_code=run.run_code, next_status=next_status)
+
+    # Outcome emoji
+    if outcome == "approved":
+        emoji = "✅"
+    elif outcome == "rejected":
+        emoji = "🔄"  # rejected → refine loop
+    elif outcome == "failed":
+        emoji = "❌"
+    else:
+        emoji = "ℹ️"
+
+    lines = [
+        f"{emoji} *[Backend AGB Step]*",
+        f"*Workflow:* {run.workflow_definition.name}",
+        f"*Job ID:* {run.run_code}",
+        f"*Project:* {run.project_root or 'N/A'}",
+        "",
+        "━━━ *Step Result* ━━━",
+        f"*Step:* {step_name}",
+        f"*Outcome:* {outcome.upper()}",
+    ]
+
+    if failure_class:
+        lines.append(f"*Failure Class:* {failure_class}")
+    if error_message:
+        lines.append("")
+        lines.append("━━━ *Error* ━━━")
+        lines.append(f"`{error_message[:300]}`")
+
+    if usage_summary:
+        total = usage_summary.get("total_tokens")
+        if total:
+            lines.append("")
+            lines.append("━━━ *Usage* ━━━")
+            lines.append(f"*Tokens:* {total:,}")
+
+    if artifacts:
+        lines.append("")
+        lines.append("━━━ *Artifacts* ━━━")
+        for key, path in artifacts.items():
+            # Show just the filename for readability
+            fname = path.split("\\")[-1].split("/")[-1] if isinstance(path, str) else str(path)
+            lines.append(f"*{key}:* `{fname}`")
+
+    if next_status:
+        lines.append("")
+        lines.append(f"*Next Status:* {next_status}")
+
+    # Always show where to review/check
+    paths = []
+    if run.job_dir:
+        paths.append(f"*Job Dir:* `{run.job_dir}`")
+    if run.project_root:
+        paths.append(f"*Project Root:* `{run.project_root}`")
+    if paths:
+        lines.append("")
+        lines.append("━━━ *Where to Review* ━━━")
+        lines.extend(paths)
+
+    user_message = "\n".join(lines)
+    logger.info("step_notify_sending", step=step_name, run_code=run.run_code,
+                 message_length=len(user_message))
+
+    # Send to both channels — always paired
+    qwenpaw_result = notify_qwenpaw_agent(user_message)
+    logger.info("step_notify_qwenpaw", step=step_name, run_code=run.run_code,
+                 result=qwenpaw_result)
+    telegram_result = notify_telegram(user_message)
+    logger.info("step_notify_sent", step=step_name, run_code=run.run_code,
+                 qwenpaw_result=qwenpaw_result, telegram_result=telegram_result)
+
+
 def _notify_on_status_change(run: WorkflowRun, status: str) -> None:
-    """Send Telegram notification for user-relevant status changes only."""
+    """Send QwenPaw + Telegram notification for job-level status changes.
+
+    Fires on: completion, failure, cancellation, waiting for approval,
+    or awaiting intervention.  Both channels always fire together.
+    """
     import structlog
     logger = structlog.get_logger(__name__)
     logger.info("notify_check", status=status, run_code=run.run_code)
@@ -530,7 +626,7 @@ def _notify_on_status_change(run: WorkflowRun, status: str) -> None:
 
     # Build enriched message with [AGB Events] tag
     lines = [
-        f"{emoji} *[AGB Events]*",
+        f"{emoji} *[Backend AGB Events]*",
         f"*Status:* {status}",
         "",
         "━━━ *Job Info* ━━━",
@@ -601,5 +697,11 @@ def _notify_on_status_change(run: WorkflowRun, status: str) -> None:
 
     user_message = "\n".join(lines)
     logger.info("notify_sending", status=status, run_code=run.run_code, message_length=len(user_message))
-    result = notify_telegram(user_message)
-    logger.info("notify_sent", status=status, run_code=run.run_code, telegram_result=result)
+
+    # Send to both channels — always paired
+    qwenpaw_result = notify_qwenpaw_agent(user_message)
+    logger.info("notify_qwenpaw_sent", status=status, run_code=run.run_code, result=qwenpaw_result)
+    telegram_result = notify_telegram(user_message)
+    logger.info("notify_telegram_sent", status=status, run_code=run.run_code, result=telegram_result)
+    
+    
