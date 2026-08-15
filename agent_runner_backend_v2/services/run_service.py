@@ -29,10 +29,7 @@ from agent_runner_backend_v2.services.state_machine import (
     transition,
 )
 
-from agent_runner_backend_v2.qwenpaw_client import (
-    notify_telegram,
-    notify_qwenpaw_agent
-)
+from agent_runner_backend_v2.qwenpaw_client import notify_telegram
 
 
 def utcnow() -> datetime:
@@ -350,6 +347,21 @@ def report_outcome(
     )
     run_repository.create_event(db, evt)
 
+    # Send Telegram notification for step outcome
+    try:
+        _notify_step_outcome(
+            run,
+            step_name=step_run.step_name,
+            outcome=outcome,
+            failure_class=failure_class,
+            error_message=error_message,
+            usage_summary=usage_summary,
+            artifacts=artifacts,
+            next_status=result.run_status,
+        )
+    except Exception:
+        logger.exception("telegram_notification_failed", run_code=run.run_code)
+
     return run
 
 
@@ -502,11 +514,10 @@ def _notify_step_outcome(
     artifacts: dict | None = None,
     next_status: str | None = None,
 ) -> None:
-    """Send QwenPaw + Telegram notification for every step outcome.
+    """Send Telegram notification for every step outcome.
 
-    Mirrors the Pushover/Telegram pattern: whenever a step produces an
-    outcome (approved / rejected / failed), notify the user immediately
-    via all configured channels, regardless of the overall run status.
+    Fires on every step outcome (approved / rejected / failed), notifying
+    the user immediately via Telegram.
     """
     import structlog
     logger = structlog.get_logger(__name__)
@@ -575,20 +586,17 @@ def _notify_step_outcome(
     logger.info("step_notify_sending", step=step_name, run_code=run.run_code,
                  message_length=len(user_message))
 
-    # Send to both channels — always paired
-    qwenpaw_result = notify_qwenpaw_agent(user_message)
-    logger.info("step_notify_qwenpaw", step=step_name, run_code=run.run_code,
-                 result=qwenpaw_result)
+    # Send to Telegram
     telegram_result = notify_telegram(user_message)
     logger.info("step_notify_sent", step=step_name, run_code=run.run_code,
-                 qwenpaw_result=qwenpaw_result, telegram_result=telegram_result)
+                 telegram_result=telegram_result)
 
 
 def _notify_on_status_change(run: WorkflowRun, status: str) -> None:
-    """Send QwenPaw + Telegram notification for job-level status changes.
+    """Send Telegram notification for job-level status changes.
 
     Fires on: completion, failure, cancellation, waiting for approval,
-    or awaiting intervention.  Both channels always fire together.
+    or awaiting intervention.
     """
     import structlog
     logger = structlog.get_logger(__name__)
@@ -698,10 +706,9 @@ def _notify_on_status_change(run: WorkflowRun, status: str) -> None:
     user_message = "\n".join(lines)
     logger.info("notify_sending", status=status, run_code=run.run_code, message_length=len(user_message))
 
-    # Send to both channels — always paired
-    qwenpaw_result = notify_qwenpaw_agent(user_message)
-    logger.info("notify_qwenpaw_sent", status=status, run_code=run.run_code, result=qwenpaw_result)
+    # Send to Telegram
     telegram_result = notify_telegram(user_message)
-    logger.info("notify_telegram_sent", status=status, run_code=run.run_code, result=telegram_result)
+    logger.info("notify_telegram_sent", status=status, run_code=run.run_code,
+                 telegram_result=telegram_result)
     
     
