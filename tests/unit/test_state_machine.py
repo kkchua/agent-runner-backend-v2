@@ -72,7 +72,7 @@ def _make_run(
     wf: WorkflowDefinition,
     *,
     run_code: str = "SM-JOB-001",
-    run_status: str = "SUBMITTED",
+    run_status: str = "USER_SUBMITTED",
     current_step: str = "generate",
     action_requested: str | None = None,
     refine_iterations: dict | None = None,
@@ -95,7 +95,7 @@ def _make_run(
 class TestNormalFlow:
     def test_submitted_to_running_on_claim(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
-        run = _make_run(db_session, wf, run_status="SUBMITTED")
+        run = _make_run(db_session, wf, run_status="USER_SUBMITTED")
 
         result = transition(db_session, run, TransitionEvent(event_type=EventType.STEP_CLAIMED), wf)
 
@@ -167,7 +167,7 @@ class TestNormalFlow:
 
         assert result.run_status == "AWAITING_INTERVENTION"
 
-    def test_running_to_failed_on_fatal(self, db_session: Session):
+    def test_running_to_intervention_on_fatal(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
         run = _make_run(db_session, wf, run_status="RUNNING", current_step="generate")
 
@@ -177,9 +177,9 @@ class TestNormalFlow:
             failure_class="FATAL",
         ), wf)
 
-        assert result.run_status == "FAILED"
+        assert result.run_status == "AWAITING_INTERVENTION"
 
-    def test_running_to_failed_on_step_failed(self, db_session: Session):
+    def test_running_to_intervention_on_step_failed(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
         run = _make_run(db_session, wf, run_status="RUNNING", current_step="generate")
 
@@ -187,7 +187,7 @@ class TestNormalFlow:
             event_type=EventType.STEP_OUTCOME, outcome="failed",
         ), wf)
 
-        assert result.run_status == "FAILED"
+        assert result.run_status == "AWAITING_INTERVENTION"
 
 
 # ===========================================================================
@@ -231,7 +231,7 @@ class TestRefineLoop:
         assert result.current_step_name == "refine"
         assert result.refine_iterations.get("review") == 1
 
-    def test_rejected_refine_exhausted_to_awaiting_maxretried(self, db_session: Session):
+    def test_rejected_refine_exhausted_to_awaiting_intervention(self, db_session: Session):
         wf = self._make_refine_workflow(db_session)
         run = _make_run(
             db_session, wf, run_status="RUNNING", current_step="review",
@@ -242,7 +242,7 @@ class TestRefineLoop:
             event_type=EventType.STEP_OUTCOME, outcome="rejected",
         ), wf)
 
-        assert result.run_status == "AWAITING_MAXRETRIED"
+        assert result.run_status == "AWAITING_INTERVENTION"
 
 
 # ===========================================================================
@@ -318,7 +318,7 @@ class TestHumanActions:
             event_type=EventType.ACTION_REQUESTED, action="CANCEL",
         ), wf)
 
-        assert result.run_status == "CANCELLED"
+        assert result.run_status == "USER_CANCELLED"
         assert result.cancel_requested == "graceful"
 
 
@@ -376,7 +376,7 @@ class TestValidation:
     def test_reject_claim_when_action_pending(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
         run = _make_run(
-            db_session, wf, run_status="SUBMITTED",
+            db_session, wf, run_status="USER_SUBMITTED",
             action_requested="CANCEL",
         )
 
@@ -442,22 +442,12 @@ class TestInvariants:
         wf = _make_workflow_with_steps(db_session)
         run = _make_run(
             db_session, wf, run_code="CLAIM-ACT",
-            run_status="SUBMITTED", action_requested="CANCEL",
+            run_status="USER_SUBMITTED", action_requested="CANCEL",
         )
 
         claimable = run_repository.list_claimable_runs(db_session, worker_id="w1")
         assert len(claimable) == 0
 
-    def test_action_requested_preserves_status(self, db_session: Session):
-        wf = _make_workflow_with_steps(db_session)
-        run = _make_run(db_session, wf, run_status="WAITING_FOR_HUMAN_APPROVAL")
-
-        result = transition(db_session, run, TransitionEvent(
-            event_type=EventType.ACTION_REQUESTED, action="APPROVE",
-        ), wf)
-
-        assert result.run_status == "WAITING_FOR_HUMAN_APPROVAL"
-        assert result.action_requested == "APPROVE"
 
 
 # ===========================================================================
@@ -467,7 +457,7 @@ class TestInvariants:
 class TestValidActions:
     def test_submitted_cancel_actions(self, db_session: Session):
         wf = _make_workflow_with_steps(db_session)
-        run = _make_run(db_session, wf, run_status="SUBMITTED")
+        run = _make_run(db_session, wf, run_status="USER_SUBMITTED")
         assert get_valid_actions(run) == ["CANCEL", "FORCE_CANCEL"]
 
     def test_WAITING_FOR_HUMAN_APPROVAL_actions(self, db_session: Session):

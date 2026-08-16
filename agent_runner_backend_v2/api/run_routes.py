@@ -32,6 +32,13 @@ def submit_run(
     user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
 ) -> RunResponse:
     """Submit a new workflow run."""
+    # --- [DEBUG] Log incoming request payload ---
+    logger.info("api_submit_run_received", 
+                workflow=req.workflow_name, 
+                impl_name=req.implementation_name, 
+                prompt_selections=req.prompt_selections,
+                input_payload_keys=list((req.input_payload or {}).keys()))
+                
     run = run_service.submit_run(
         db,
         workflow_name=req.workflow_name,
@@ -40,6 +47,8 @@ def submit_run(
         workspace_path=req.workspace_path,
         input_payload=req.input_payload,
         start_step=req.start_step,
+        implementation_name=req.implementation_name,
+        prompt_selections=req.prompt_selections,
     )
     db.commit()
     return serialize_run(run)
@@ -60,7 +69,7 @@ def list_runs(
     if status == "active":
         statuses = ["USER_SUBMITTED", "USER_APPROVED", "USER_REJECTED", "USER_RESUMED", "USER_RETRIED",
                      "PENDING", "RUNNING", "WAITING_FOR_HUMAN_APPROVAL",
-                     "AWAITING_INTERVENTION", "AWAITING_MAXRETRIED"]
+                     "AWAITING_INTERVENTION"]
     elif status == "terminal":
         statuses = ["COMPLETED", "FAILED", "CANCELLED", "USER_CANCELLED"]
 

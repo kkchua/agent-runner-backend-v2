@@ -74,6 +74,87 @@ class TestSubmitRun:
         assert run.target_worker_id == "w1"
         assert run.project_root == "/workspace"
 
+    def test_submit_resolves_bare_filename_for_file_input(self, db_session: Session):
+        """Bare filenames in input_payload are resolved to full paths."""
+        import os
+        definition = {
+            "job_prefix": "T",
+            "init_step": "generate",
+            "steps": {
+                "generate": {
+                    "artifacts": {"required_inputs": ["DRAFT_INIT_FILE"]},
+                },
+            },
+            "init_input_dirs": {"DRAFT_INIT_FILE": "docs/drafts"},
+        }
+        workflow_service.sync_workflow(db_session, workflow_name="path_test", definition=definition)
+
+        run = run_service.submit_run(
+            db_session,
+            workflow_name="path_test",
+            project_root="/workspace/repo",
+            input_payload={"DRAFT_INIT_FILE": "my-draft.md"},
+        )
+
+        expected = os.path.join("/workspace/repo", "docs/drafts", "my-draft.md")
+        assert run.input_payload["DRAFT_INIT_FILE"] == expected
+
+    def test_submit_passes_through_full_path(self, db_session: Session):
+        """Values with path separators are passed through as-is."""
+        definition = {
+            "job_prefix": "T",
+            "init_step": "generate",
+            "steps": {"generate": {}},
+            "init_input_dirs": {"DRAFT_INIT_FILE": "docs/drafts"},
+        }
+        workflow_service.sync_workflow(db_session, workflow_name="passthrough_test", definition=definition)
+
+        run = run_service.submit_run(
+            db_session,
+            workflow_name="passthrough_test",
+            project_root="/workspace/repo",
+            input_payload={"DRAFT_INIT_FILE": "docs/other/file.md"},
+        )
+
+        assert run.input_payload["DRAFT_INIT_FILE"] == "docs/other/file.md"
+
+    def test_submit_passes_through_text_input(self, db_session: Session):
+        """Non-file keys (not ending in _FILE/_DOC) are passed through."""
+        definition = {
+            "job_prefix": "T",
+            "init_step": "generate",
+            "steps": {"generate": {}},
+            "init_input_dirs": {},
+        }
+        workflow_service.sync_workflow(db_session, workflow_name="text_test", definition=definition)
+
+        run = run_service.submit_run(
+            db_session,
+            workflow_name="text_test",
+            project_root="/workspace",
+            input_payload={"TASK_DESCRIPTION": "Build a feature"},
+        )
+
+        assert run.input_payload["TASK_DESCRIPTION"] == "Build a feature"
+
+    def test_submit_no_resolution_without_project_root(self, db_session: Session):
+        """Without project_root, bare filenames pass through unchanged."""
+        definition = {
+            "job_prefix": "T",
+            "init_step": "generate",
+            "steps": {"generate": {}},
+            "init_input_dirs": {"DRAFT_INIT_FILE": "docs/drafts"},
+        }
+        workflow_service.sync_workflow(db_session, workflow_name="noroot_test", definition=definition)
+
+        run = run_service.submit_run(
+            db_session,
+            workflow_name="noroot_test",
+            input_payload={"DRAFT_INIT_FILE": "my-draft.md"},
+        )
+
+        assert run.input_payload["DRAFT_INIT_FILE"] == "my-draft.md"
+
 
 class TestClaimWork:
     def test_claim_returns_execute_step(self, db_session: Session):

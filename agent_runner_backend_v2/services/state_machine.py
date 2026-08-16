@@ -34,7 +34,6 @@ class RunStatus(str, Enum):
     RUNNING = "RUNNING"
     WAITING_FOR_HUMAN_APPROVAL = "WAITING_FOR_HUMAN_APPROVAL"
     AWAITING_INTERVENTION = "AWAITING_INTERVENTION"
-    AWAITING_MAXRETRIED = "AWAITING_MAXRETRIED"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
@@ -81,7 +80,6 @@ VALID_ACTIONS: dict[RunStatus, set[Action]] = {
     RunStatus.RUNNING: {Action.CANCEL, Action.FORCE_CANCEL},
     RunStatus.WAITING_FOR_HUMAN_APPROVAL: {Action.APPROVE, Action.REJECT, Action.CANCEL, Action.FORCE_CANCEL},
     RunStatus.AWAITING_INTERVENTION: {Action.RESUME, Action.RETRY, Action.CANCEL, Action.FORCE_CANCEL},
-    RunStatus.AWAITING_MAXRETRIED: {Action.RESUME, Action.RETRY, Action.CANCEL, Action.FORCE_CANCEL},
     RunStatus.COMPLETED: set(),
     RunStatus.FAILED: set(),
     RunStatus.CANCELLED: set(),
@@ -227,7 +225,10 @@ def _handle_outcome(
         return _handle_rejected(db, run, event, workflow)
 
     if outcome == "failed":
-        return TransitionResult(run_status=RunStatus.FAILED.value)
+        return TransitionResult(
+            run_status=RunStatus.AWAITING_INTERVENTION.value,
+            current_step_name=run.current_step_name,
+        )
 
     return TransitionResult(
         run_status=run.run_status,
@@ -284,18 +285,9 @@ def _handle_rejected(
                     refine_iterations=new_iterations,
                 )
 
-            # Refine exhausted — check replan
-            replan_config = current_step.raw_config.get("on_exhaust_replan") or {}
-            replan_step = replan_config.get("replan_step")
-            if replan_step:
-                return TransitionResult(
-                    run_status=RunStatus.PENDING.value,
-                    current_step_name=replan_step,
-                )
-
-            # All exhausted
+            # Refine exhausted — human intervention required
             return TransitionResult(
-                run_status=RunStatus.AWAITING_MAXRETRIED.value,
+                run_status=RunStatus.AWAITING_INTERVENTION.value,
                 current_step_name=run.current_step_name,
             )
 
@@ -313,8 +305,11 @@ def _handle_rejected(
             current_step_name=run.current_step_name,
         )
 
-    # FATAL or unknown
-    return TransitionResult(run_status=RunStatus.FAILED.value)
+    # FATAL or unknown — human intervention required (never auto-FAILED)
+    return TransitionResult(
+        run_status=RunStatus.AWAITING_INTERVENTION.value,
+        current_step_name=run.current_step_name,
+    )
 
 
 def _handle_action_requested(

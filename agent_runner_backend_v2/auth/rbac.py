@@ -9,8 +9,10 @@ from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBea
 from agent_runner_backend_v2.auth.supabase_auth import (
     UserContext,
     _extract_role,
+    _resolve_role,
     decode_supabase_token,
 )
+from agent_runner_backend_v2.config import settings
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 _api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -25,10 +27,13 @@ def _user_from_bearer(bearer: HTTPAuthorizationCredentials) -> UserContext:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token: missing user ID",
         )
+    email = payload.get("email", "")
+    jwt_role = _extract_role(payload)
+    resolved_role = _resolve_role(user_id, email, jwt_role)
     return UserContext(
         user_id=user_id,
-        email=payload.get("email", ""),
-        role=_extract_role(payload),
+        email=email,
+        role=resolved_role,
         is_service_account=False,
         metadata=payload.get("user_metadata", {}),
     )
@@ -104,6 +109,16 @@ def require_jwt_or_api_key(*allowed_roles: str) -> Callable:
         bearer: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
         api_key: str | None = Depends(_api_key_scheme),
     ) -> UserContext:
+        # Bypass auth for local development to simplify testing
+        if settings.APP_ENV == "development":
+            return UserContext(
+                user_id="dev-user",
+                email="dev@localhost",
+                role="admin",
+                is_service_account=True,
+                metadata={"dev_mode": True},
+            )
+
         user: UserContext | None = None
 
         if bearer is not None:

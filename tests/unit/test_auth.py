@@ -265,3 +265,50 @@ class TestUserContext:
         )
         assert ctx.is_service_account is True
         assert ctx.metadata["api_key_name"] == "My Script"
+
+
+# ── Current navigation config tests ──
+
+
+class TestAgentRunnerMenuFiltering:
+    """Tests for the actual AGENT_RUNNER_MENU config (runs, history, submit, etc.)."""
+
+    def test_admin_sees_all_items_including_users(self):
+        result = _filter_menu(AGENT_RUNNER_MENU, "admin")
+        ids = [item["id"] for item in result]
+        assert "runs" in ids
+        assert "history" in ids
+        assert "submit" in ids
+        assert "workflows" in ids
+        assert "workers" in ids
+        assert "hosts" in ids
+        assert "repos" in ids
+        assert "users" in ids
+
+    def test_operator_sees_operational_items_no_admin(self):
+        result = _filter_menu(AGENT_RUNNER_MENU, "operator")
+        ids = [item["id"] for item in result]
+        assert "runs" in ids
+        assert "history" in ids
+        assert "submit" in ids
+        assert "workflows" in ids
+        assert "workers" in ids
+        assert "hosts" not in ids
+        assert "repos" not in ids
+        assert "users" not in ids
+
+    def test_viewer_sees_read_only_items(self):
+        result = _filter_menu(AGENT_RUNNER_MENU, "viewer")
+        ids = [item["id"] for item in result]
+        assert "runs" in ids
+        assert "history" in ids
+        assert "submit" not in ids
+        assert "workflows" not in ids
+        assert "workers" not in ids
+        assert "hosts" not in ids
+        assert "repos" not in ids
+        assert "users" not in ids
+
+    def test_unknown_role_sees_nothing(self):
+        result = _filter_menu(AGENT_RUNNER_MENU, "unknown")
+        assert result == []
