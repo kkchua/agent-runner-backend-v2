@@ -1,0 +1,17 @@
+.git
+.venv
+.env
+.qwen
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+*.egg-info
+dist
+build
+logs
+*.db
+backup-db.*
+restore-db.*
+test_telegram.py
+seed_*.py
