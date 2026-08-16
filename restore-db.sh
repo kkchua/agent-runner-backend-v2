@@ -31,7 +31,7 @@ fi
 echo "Restoring database..."
 
 # Restore database
-docker exec -i postgres psql -U "$DB_USER" -d "$DB_NAME" < "$BACKUP_FILE"
+docker exec -i shared-postgres psql -U "$DB_USER" -d "$DB_NAME" < "$BACKUP_FILE"
 
 if [ $? -eq 0 ]; then
     echo "Restore completed successfully!"
