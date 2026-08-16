@@ -31,7 +31,7 @@ if /i not "%confirm%"=="yes" (
 echo Restoring database...
 
 REM Restore database
-docker exec -i postgres psql -U %DB_USER% -d %DB_NAME% < "%BACKUP_FILE%"
+docker exec -i shared-postgres psql -U %DB_USER% -d %DB_NAME% < "%BACKUP_FILE%"
 
 if %ERRORLEVEL% EQU 0 (
     echo Restore completed successfully!
