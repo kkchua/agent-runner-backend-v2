@@ -5,7 +5,10 @@ all transitions. Never uses db.query() directly — goes through repositories.
 """
 from __future__ import annotations
 
+import structlog
 from datetime import datetime, timezone
+
+logger = structlog.get_logger(__name__)
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -25,6 +28,8 @@ from agent_runner_backend_v2.services.state_machine import (
     get_valid_actions,
     transition,
 )
+
+from agent_runner_backend_v2.qwenpaw_client import notify_telegram
 
 
 def utcnow() -> datetime:
@@ -53,11 +58,17 @@ def submit_run(
     workspace_path: str | None = None,
     input_payload: dict | None = None,
     start_step: str | None = None,
+    implementation_name: str | None = None,
+    prompt_selections: dict | None = None,
 ) -> WorkflowRun:
     """Submit a new workflow run.
 
     Creates the run in SUBMITTED status with the workflow's init step.
     If start_step is provided, overrides the init step.
+
+    For file-type inputs (keys ending with _FILE or _DOC), bare filenames
+    are resolved to full paths using init_input_dirs from the workflow
+    definition: project_root / directory / filename.
     """
     workflow = workflow_repository.get_workflow_by_name(db, workflow_name)
     if not workflow:
@@ -65,8 +76,27 @@ def submit_run(
     if not workflow.is_active:
         raise HTTPException(status_code=400, detail=f"Workflow '{workflow_name}' is not active")
 
+    # Resolve bare filenames in input_payload to full artifact paths
+    resolved_payload = _resolve_input_paths(
+        input_payload or {},
+        workflow=workflow,
+        project_root=project_root,
+    )
+
     run_code = _generate_run_code(db, workflow.job_prefix)
     init_step = start_step or workflow.init_step
+
+    # Store BCS context in context_payload
+    context_payload = {}
+    if implementation_name:
+        context_payload["implementation_name"] = implementation_name
+    if prompt_selections:
+        context_payload["prompt_selections"] = prompt_selections
+
+    # --- [DEBUG] Log constructed context_payload ---
+    logger.info("service_submit_run_context", 
+                run_code=run_code, 
+                context_payload=context_payload)
 
     run = WorkflowRun(
         run_code=run_code,
@@ -77,7 +107,8 @@ def submit_run(
         worker_label="live",
         project_root=project_root,
         workspace_path=workspace_path,
-        input_payload=input_payload or {},
+        input_payload=resolved_payload,
+        context_payload=context_payload,
     )
     run_repository.create_run(db, run)
 
@@ -90,6 +121,54 @@ def submit_run(
     run_repository.create_event(db, event)
 
     return run
+
+
+def _resolve_input_paths(
+    input_payload: dict,
+    *,
+    workflow: WorkflowDefinition,
+    project_root: str | None,
+) -> dict:
+    """Resolve bare filenames in input_payload to full artifact paths.
+
+    For keys ending with _FILE or _DOC, if the value is a bare filename
+    (no path separators), it is resolved using:
+        project_root / init_input_dirs[key] / filename
+
+    Other keys or values with path separators are passed through as-is.
+    """
+    import os
+
+    if not input_payload or not project_root:
+        return dict(input_payload)
+
+    init_input_dirs = (workflow.raw_definition or {}).get("init_input_dirs", {})
+    if not init_input_dirs:
+        return dict(input_payload)
+
+    resolved = {}
+    for key, value in input_payload.items():
+        if not isinstance(value, str) or not value:
+            resolved[key] = value
+            continue
+
+        if key == "BOOTSTRAP_SPEC_FILE" or key == "REQUIREMENT_DOC":
+            resolved[key] = value
+            continue
+        
+        # Check if this is a file-type key with a bare filename
+        is_file_key = key.endswith("_FILE") or key.endswith("_DOC")
+        
+        is_bare = os.sep not in value and "/" not in value
+        
+        if is_file_key and is_bare and key in init_input_dirs:
+            directory = init_input_dirs[key]
+            full_path = os.path.join(project_root, directory, value)
+            resolved[key] = value
+        else:
+            resolved[key] = value
+
+    return resolved
 
 
 def claim_work(
@@ -268,6 +347,21 @@ def report_outcome(
     )
     run_repository.create_event(db, evt)
 
+    # Send Telegram notification for step outcome
+    try:
+        _notify_step_outcome(
+            run,
+            step_name=step_run.step_name,
+            outcome=outcome,
+            failure_class=failure_class,
+            error_message=error_message,
+            usage_summary=usage_summary,
+            artifacts=artifacts,
+            next_status=result.run_status,
+        )
+    except Exception:
+        logger.exception("telegram_notification_failed", run_code=run.run_code)
+
     return run
 
 
@@ -408,3 +502,213 @@ def _get_or_create_step_run(
     run.current_step_run_id = step_run.id
 
     return step_run
+
+
+def _notify_step_outcome(
+    run: WorkflowRun,
+    step_name: str,
+    outcome: str,
+    failure_class: str | None = None,
+    error_message: str | None = None,
+    usage_summary: dict | None = None,
+    artifacts: dict | None = None,
+    next_status: str | None = None,
+) -> None:
+    """Send Telegram notification for every step outcome.
+
+    Fires on every step outcome (approved / rejected / failed), notifying
+    the user immediately via Telegram.
+    """
+    import structlog
+    logger = structlog.get_logger(__name__)
+    logger.info("step_notify_check", step=step_name, outcome=outcome,
+                 run_code=run.run_code, next_status=next_status)
+
+    # Outcome emoji
+    if outcome == "approved":
+        emoji = "✅"
+    elif outcome == "rejected":
+        emoji = "🔄"  # rejected → refine loop
+    elif outcome == "failed":
+        emoji = "❌"
+    else:
+        emoji = "ℹ️"
+
+    lines = [
+        f"{emoji} *[Backend AGB Step]*",
+        f"*Workflow:* {run.workflow_definition.name}",
+        f"*Job ID:* {run.run_code}",
+        f"*Project:* {run.project_root or 'N/A'}",
+        "",
+        "━━━ *Step Result* ━━━",
+        f"*Step:* {step_name}",
+        f"*Outcome:* {outcome.upper()}",
+    ]
+
+    if failure_class:
+        lines.append(f"*Failure Class:* {failure_class}")
+    if error_message:
+        lines.append("")
+        lines.append("━━━ *Error* ━━━")
+        lines.append(f"`{error_message[:300]}`")
+
+    if usage_summary:
+        total = usage_summary.get("total_tokens")
+        if total:
+            lines.append("")
+            lines.append("━━━ *Usage* ━━━")
+            lines.append(f"*Tokens:* {total:,}")
+
+    if artifacts:
+        lines.append("")
+        lines.append("━━━ *Artifacts* ━━━")
+        for key, path in artifacts.items():
+            # Show just the filename for readability
+            fname = path.split("\\")[-1].split("/")[-1] if isinstance(path, str) else str(path)
+            lines.append(f"*{key}:* `{fname}`")
+
+    if next_status:
+        lines.append("")
+        lines.append(f"*Next Status:* {next_status}")
+
+    # Always show where to review/check
+    paths = []
+    if run.job_dir:
+        paths.append(f"*Job Dir:* `{run.job_dir}`")
+    if run.project_root:
+        paths.append(f"*Project Root:* `{run.project_root}`")
+    if paths:
+        lines.append("")
+        lines.append("━━━ *Where to Review* ━━━")
+        lines.extend(paths)
+
+    user_message = "\n".join(lines)
+    logger.info("step_notify_sending", step=step_name, run_code=run.run_code,
+                 message_length=len(user_message))
+
+    # Send to Telegram
+    telegram_result = notify_telegram(user_message)
+    logger.info("step_notify_sent", step=step_name, run_code=run.run_code,
+                 telegram_result=telegram_result)
+
+
+def _notify_on_status_change(run: WorkflowRun, status: str) -> None:
+    """Send Telegram notification for job-level status changes.
+
+    Fires on: completion, failure, cancellation, waiting for approval,
+    or awaiting intervention.
+    """
+    import structlog
+    logger = structlog.get_logger(__name__)
+    logger.info("notify_check", status=status, run_code=run.run_code)
+
+    # Only notify on: completion, failure, waiting for approval, intervention, cancellation
+    NOTIFY_STATUSES = {
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED",
+        "WAITING_FOR_HUMAN_APPROVAL",
+        "AWAITING_INTERVENTION",
+    }
+    if status not in NOTIFY_STATUSES:
+        logger.info("notify_skip", status=status, reason="not in NOTIFY_STATUSES")
+        return
+
+    # Calculate duration
+    duration = "In progress"
+    if run.started_at:
+        from datetime import datetime
+        now = datetime.now()
+        delta = now - run.started_at
+        total_seconds = int(delta.total_seconds())
+        minutes, seconds = divmod(total_seconds, 60)
+        duration = f"{minutes}m {seconds}s"
+
+    # Status emoji
+    if status == "COMPLETED":
+        emoji = "✅"
+    elif status in ("FAILED", "CANCELLED"):
+        emoji = "❌"
+    else:
+        emoji = "⚠️"
+
+    # Build enriched message with [AGB Events] tag
+    lines = [
+        f"{emoji} *[Backend AGB Events]*",
+        f"*Status:* {status}",
+        "",
+        "━━━ *Job Info* ━━━",
+        f"*Workflow:* {run.workflow_definition.name}",
+        f"*Job ID:* {run.run_code}",
+        f"*Worker:* {run.claimed_by_worker or run.target_worker_id or 'N/A'}",
+    ]
+
+    # Add timing info
+    if run.submitted_at:
+        lines.append(f"*Submitted:* {run.submitted_at.strftime('%Y-%m-%d %H:%M:%S')}")
+    if run.started_at:
+        lines.append(f"*Started:* {run.started_at.strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"*Duration:* {duration}")
+
+    # Add current step info
+    if run.current_step_name:
+        lines.append("")
+        lines.append("━━━ *Current Step* ━━━")
+        lines.append(f"*Step:* {run.current_step_name}")
+
+        # Get latest step run details if available
+        if run.step_runs:
+            latest_step = run.step_runs[-1]  # Last step by created_at
+            if latest_step.step_outcome:
+                lines.append(f"*Outcome:* {latest_step.step_outcome}")
+            if latest_step.coder:
+                lines.append(f"*Coder:* {latest_step.coder}")
+            if latest_step.duration_seconds:
+                step_mins, step_secs = divmod(latest_step.duration_seconds, 60)
+                lines.append(f"*Step Duration:* {step_mins}m {step_secs}s")
+
+    # Add action info for approval/intervention states
+    if status in ("WAITING_FOR_HUMAN_APPROVAL", "AWAITING_INTERVENTION"):
+        lines.append("")
+        lines.append("━━━ *Action Required* ━━━")
+        action = run.action_requested or "REVIEW"
+        lines.append(f"*Action:* {action}")
+        if run.action_feedback:
+            lines.append(f"*Feedback:* {run.action_feedback[:200]}")
+
+    # Add error message if present
+    if run.error_message:
+        lines.append("")
+        lines.append("━━━ *Error* ━━━")
+        lines.append(f"`{run.error_message[:300]}`")
+
+    # Add paths if available
+    paths = []
+    if run.project_root:
+        paths.append(f"*Project:* {run.project_root}")
+    if run.job_dir:
+        paths.append(f"*Job Dir:* {run.job_dir}")
+    if run.workspace_path:
+        paths.append(f"*Workspace:* {run.workspace_path}")
+
+    if paths:
+        lines.append("")
+        lines.append("━━━ *Paths* ━━━")
+        lines.extend(paths)
+
+    # Add refine iterations if any
+    if run.refine_iterations:
+        refine_info = ", ".join(f"{step}: {count}x" for step, count in run.refine_iterations.items())
+        if refine_info:
+            lines.append("")
+            lines.append(f"*Refine Iterations:* {refine_info}")
+
+    user_message = "\n".join(lines)
+    logger.info("notify_sending", status=status, run_code=run.run_code, message_length=len(user_message))
+
+    # Send to Telegram
+    telegram_result = notify_telegram(user_message)
+    logger.info("notify_telegram_sent", status=status, run_code=run.run_code,
+                 telegram_result=telegram_result)
+    
+    

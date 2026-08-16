@@ -1,7 +1,7 @@
 """Repository layer for workflow definition persistence."""
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from agent_runner_backend_v2.models.workflow import (
     WorkflowDefinition,
@@ -18,8 +18,11 @@ def get_workflow_by_name(db: Session, name: str) -> WorkflowDefinition | None:
 
 
 def list_workflows(db: Session, *, active_only: bool = True) -> list[WorkflowDefinition]:
-    """List workflow definitions."""
-    query = db.query(WorkflowDefinition)
+    """List workflow definitions with steps and artifact bindings eagerly loaded."""
+    query = db.query(WorkflowDefinition).options(
+        joinedload(WorkflowDefinition.steps)
+        .joinedload(WorkflowStepDefinition.artifact_bindings),
+    )
     if active_only:
         query = query.filter(WorkflowDefinition.is_active.is_(True))
     return query.order_by(WorkflowDefinition.name).all()

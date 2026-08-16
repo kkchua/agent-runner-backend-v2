@@ -25,6 +25,11 @@ def serialize_run(run: WorkflowRun, valid_actions: list[str] | None = None) -> R
         wf_name = run.workflow_definition.name
         wf_def_id = run.workflow_definition.id
 
+    # Extract BCS fields from context_payload
+    ctx = run.context_payload or {}
+    impl_name = ctx.get("implementation_name")
+    prompt_sels = ctx.get("prompt_selections", {})
+
     return RunResponse(
         run_id=run.id,
         run_code=run.run_code,
@@ -43,7 +48,7 @@ def serialize_run(run: WorkflowRun, valid_actions: list[str] | None = None) -> R
         workspace_path=run.workspace_path,
         job_dir=run.job_dir,
         input_payload=run.input_payload,
-        context_payload=run.context_payload,
+        context_payload=ctx,
         error_message=run.error_message,
         refine_iterations=run.refine_iterations,
         submitted_at=run.submitted_at.isoformat() if run.submitted_at else None,
@@ -52,6 +57,8 @@ def serialize_run(run: WorkflowRun, valid_actions: list[str] | None = None) -> R
         created_at=run.created_at.isoformat() if run.created_at else "",
         updated_at=run.updated_at.isoformat() if run.updated_at else "",
         valid_actions=valid_actions or get_valid_actions(run),
+        implementation_name=impl_name,
+        prompt_selections=prompt_sels,
     )
 
 
@@ -89,6 +96,22 @@ def serialize_worker(worker: WorkerRegistry) -> WorkerResponse:
 def serialize_workflow(wf: WorkflowDefinition) -> WorkflowResponse:
     """Serialize a WorkflowDefinition to a WorkflowResponse."""
     step_names = [s.step_name for s in sorted(wf.steps, key=lambda s: s.step_order)]
+
+    # Extract init step's required input artifact keys from raw_definition
+    init_input_keys: list[str] = []
+    if wf.init_step and wf.raw_definition:
+        steps_config = wf.raw_definition.get("steps", {})
+        init_step_cfg = steps_config.get(wf.init_step, {})
+        # Try nested artifacts first, then top-level (bundle flattens them)
+        artifacts_cfg = init_step_cfg.get("artifacts") or init_step_cfg
+        init_input_keys = list(artifacts_cfg.get("required_inputs", []))
+
+    # Extract implementation declarations from raw_definition
+    # BCS: Look for 'implementations' (plural) as sent by the runner
+    implementations: list[dict] = []
+    if wf.raw_definition:
+        implementations = list(wf.raw_definition.get("implementations", []))
+
     return WorkflowResponse(
         workflow_name=wf.name,
         job_prefix=wf.job_prefix,
@@ -96,6 +119,8 @@ def serialize_workflow(wf: WorkflowDefinition) -> WorkflowResponse:
         is_active=wf.is_active,
         step_count=len(wf.steps),
         steps=step_names,
+        init_input_keys=init_input_keys,
+        implementations=implementations,
     )
 
 

@@ -1,8 +1,11 @@
 """Worker management API routes."""
 from __future__ import annotations
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+logger = structlog.get_logger(__name__)
 
 from agent_runner_backend_v2.api.schemas import (
     ClaimResponse,
@@ -16,6 +19,7 @@ from agent_runner_backend_v2.api.serializers import serialize_worker, serialize_
 from agent_runner_backend_v2.auth.rbac import require_jwt_or_api_key
 from agent_runner_backend_v2.auth.supabase_auth import UserContext
 from agent_runner_backend_v2.database import get_db, worker_repository
+from agent_runner_backend_v2.database.user_worker_repository import get_user_worker_ids
 from agent_runner_backend_v2.services import run_service, worker_service
 
 router = APIRouter(prefix="/api/workers", tags=["workers"])
@@ -104,7 +108,17 @@ def claim_work(
         "workflow_name": run.workflow_definition.name if run.workflow_definition else "",
         "project_root": run.project_root,
         "job_dir": run.job_dir,
+        # BCS context fields (Canonical Keys)
+        "implementation_name": run.context_payload.get("implementation_name"),
+        "prompt_selections": run.context_payload.get("prompt_selections", {}),
     }
+    
+    # BCS Section 11.6: Log claim response payload
+    logger.info("api_claim_response_sent", 
+                worker_id=worker_id,
+                run_code=run.run_code,
+                implementation_name=run_data.get("implementation_name"))
+    
     step_data = {
         "step_run_id": step_run.id,
         "step_name": step_run.step_name,
@@ -172,6 +186,9 @@ def list_workers(
     db: Session = Depends(get_db),
     user: UserContext = Depends(require_jwt_or_api_key("admin", "operator")),
 ) -> list[WorkerResponse]:
-    """List all registered workers."""
+    """List all registered workers. Admins see all; operators see only assigned workers."""
     workers = worker_repository.list_workers(db)
+    if user.role != "admin" and not user.is_service_account:
+        assigned_ids = set(get_user_worker_ids(db, user.user_id))
+        workers = [w for w in workers if w.worker_id in assigned_ids]
     return [serialize_worker(w) for w in workers]

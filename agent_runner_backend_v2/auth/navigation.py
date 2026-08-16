@@ -90,6 +90,13 @@ AGENT_RUNNER_MENU: list[MenuItem] = [
         path="/repos",
         required_roles=["admin"],
     ),
+    MenuItem(
+        id="users",
+        label="Users & Roles",
+        icon="Users",
+        path="/users",
+        required_roles=["admin"],
+    ),
 ]
 
 # Registry of app_id → menu items
